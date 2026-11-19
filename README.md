@@ -109,9 +109,3 @@ Developed and maintained by:
 
 * **Miguel Ribeiro** — [@MiguelRibeiro1210](https://github.com/MiguelRibeiro1210)
 * **Pedro** — [@Pedro-p21](https://github.com/Pedro-p21)
-
----
-
-## License
-
-This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
