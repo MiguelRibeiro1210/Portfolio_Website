@@ -1,111 +1,129 @@
 # Portfolio_website
 
 ![JavaScript](https://img.shields.io/badge/JavaScript-ES6%2B-F7DF1E?style=for-the-badge&logo=javascript&logoColor=black)
-![Node.js](https://img.shields.io/badge/Node.js-REST%20API-339933?style=for-the-badge&logo=nodedotjs&logoColor=white)
-![SQLite](https://img.shields.io/badge/SQLite-Database-003B57?style=for-the-badge&logo=sqlite&logoColor=white)
-![Self-Hosted](https://img.shields.io/badge/Deployment-Self--Hosted-blue?style=for-the-badge&logo=linux&logoColor=white)
+![Node.js](https://img.shields.io/badge/Node.js-Express%20API-339933?style=for-the-badge&logo=nodedotjs&logoColor=white)
+![SQLite](https://img.shields.io/badge/SQLite-Relational%20DB-003B57?style=for-the-badge&logo=sqlite&logoColor=white)
+![Sessions](https://img.shields.io/badge/Auth-express--session%20%2B%20bcrypt-informational?style=for-the-badge)
 
-A full-stack, self-hosted portfolio web platform designed for developers to showcase both **open-source** and **proprietary/private** projects. Beyond standard repository links, this platform allows creators to distribute downloadable project samples/builds, provide deep technical breakdowns, and maintain a comprehensive, interactive Curriculum Vitae (CV).
+A full-stack web platform for developers and students to manage private portfolio projects, downloadable builds, and structured CV entries with strict per-user ownership and session-based security.
 
 ---
 
 ## Table of Contents
 
-- [About the Project](#about-the-project)
+- [About the Project & Target Users](#about-the-project--target-users)
 - [Key Features](#key-features)
 - [Tech Stack & Architecture](#tech-stack--architecture)
-- [Project Structure](#project-structure)
-- [REST API Overview](#rest-api-overview)
-- [Collaborators](#collaborators)
-- [License](#license)
+- [Database Schema](#database-schema)
+- [Getting Started (Codespaces & Local Setup)](#getting-started-codespaces--local-setup)
+- [REST API Endpoints](#rest-api-endpoints)
+- [Security Tests](#security-tests)
+- [Known Limitations](#known-limitations)
+- [Contributions, AI Tools & Credits](#contributions-ai-tools--credits)
 
 ---
 
-## About the Project
+## About the Project & Target Users
 
-Traditional portfolios often limit developers to linking public GitHub repositories. However, many real-world, academic, or commercial projects cannot have their source code publicly exposed. 
+**Target users:** Software developers, students, and job applicants who need a single place to organize their projects and CV data without exposing private source code or letting other users access their records.
 
-**Portfolio_website** solves this by offering a dual-showcase approach:
-1. **Open-Source Projects:** Direct links to live demos and external version control repositories.
-2. **Closed-Source / Private Projects:** Secure hosting for compiled builds, demo packages, or executable samples that visitors can download directly, accompanied by rich media previews and technical documentation.
+Developers often struggle to keep track of project write-ups, compiled demo packages, and CV entries while keeping draft/private work isolated per account. Our project lets each authenticated user register, sign in, create/edit/delete their own projects and CV entries, and manage their profile safely.
 
 ---
 
 ## Key Features
 
-### Authentication & Authorization
-* **User Authentication:** Secure login and session/token management (e.g., JWT or HTTP-only cookies) with hashed passwords (`bcrypt`).
-* **Role & Ownership Authorization:** Strict access control ensuring that only authenticated users can create new entries, and users can only edit or delete their own profiles and projects.
-
-### Dynamic Project Management
-Authenticated users can publish and manage projects featuring:
-* **Overview:** Project title and comprehensive description.
-* **Media Carousel:** Interactive gallery supporting both images and video previews/demos.
-* **Repository Integration:** Optional external links (GitHub, GitLab, live deployment) for open-source work.
-* **Sample Downloads:** Direct file download support for private projects (e.g., `.zip`, `.exe`, `.apk`, or demo builds) without exposing source code.
-* **Technical Specifications Tab:** Dedicated section detailing the engineering behind the project—programming languages, frameworks, third-party APIs, databases, and architectural patterns used.
-
-### Interactive Developer Profile & CV Builder
-Each user has a customizable profile organized into intuitive tabs:
-* **Structured Resume Fields:** Interactive tabs for *About Me*, *Work Experience*, *Education*, *Technical Skills*, *Certifications*, and *Contact Information*.
-* **Custom Resume Attachment:** Functionality to upload, preview, and allow recruiters/visitors to download the user's personal CV document (PDF).
+- **Authentication & Session Security:** Account registration with server-side validation (`409` on duplicate email), password hashing with `bcrypt` (cost ≥ 10), generic error responses on failed login (`401`), and `express-session` (`httpOnly`, `sameSite`) with session regeneration on login and destruction on logout.
+- **Per-User Ownership & Authorization:** `requireAuth` middleware protects private endpoints (`401` when unauthenticated), and every read, update, and delete filters by the authenticated session user (`WHERE owner_id = ?`), returning `403` or `404` when attempting to access another user's record.
+- **Double Token Security:** Combines a short-lived authentication (access) token for API requests with a longer-lived refresh token to renew sessions safely without requiring frequent re-authentication.
+- **Project Management (CRUD):** Create, view, update, and delete projects (open-source links, private/closed-source build downloads, media previews, and technical specs).
+- **CV & Profile Management:** Manage structured CV sections (summary, experience, education, skills) and profile details tied to the authenticated user.
+- **Safe Browser Client:** Frontend calls the backend via `fetch()`, displays server status messages clearly, and renders user-supplied text using `textContent` rather than `innerHTML`.
 
 ---
 
 ## Tech Stack & Architecture
 
-The application follows a decoupled client-server architecture communicating exclusively via a **RESTful API**:
-
-* **Frontend:** Vanilla JavaScript (ES6+), HTML5, CSS3 (Responsive UI & Media Carousel).
-* **Backend:** Node.js (REST API server, file upload handling via `multer`, authentication middleware).
-* **Database:** SQLite3 (Relational data storage).
-* **Infrastructure:** Self-hosted environment (Linux/Windows Server, Reverse Proxy with Nginx, Process Management with PM2).
-
----
-
-## Project Structure
+- **Frontend:** HTML5, CSS3, Vanilla JavaScript (ES6+), served from the same Node.js/Express application.
+- **Backend:** Node.js + Express REST API, `express-session`, `bcrypt`, `dotenv` (plus `multer` where file uploads are used).
+- **Database:** SQLite with foreign keys enabled and parameterized queries (`?` placeholders) across all SQL statements.
 
 ```text
-Portfolio_website/
-├── backend/
-│   ├── config/          # Database connection & environment config
-│   ├── controllers/     # Request handlers (Auth, Users, Projects)
-│   ├── database/        # SQLite (.db) file & SQL migration/schema scripts
-│   ├── middleware/      # Authentication & authorization guards
-│   ├── routes/          # REST API route definitions
-│   ├── uploads/         # Stored media, project samples, and user CVs
-│   └── server.js        # Node.js entry point
-├── frontend/
-│   ├── assets/          # Static icons and fallback placeholders
-│   ├── css/             # Stylesheets
-│   ├── js/              # API fetch clients, carousel logic, auth state
-│   └── index.html       # Main application entry
-├── .env.example         # Environment variables template
-├── package.json         # Dependencies and scripts
-└── README.md            # Project documentation
+Browser (HTML/CSS/JS + fetch + textContent)
+        │
+        ▼  HTTP / JSON + Session Cookie (httpOnly, sameSite)
+Express REST API (routes, requireAuth, ownership checks)
+        │
+        ▼  Parameterized SQL (? placeholders)
+SQLite Database (users, projects, cv_entries)
 ```
+## Database Schema
+
+
 ---
 
-## REST API Overview
+## Getting Started (Codespaces & Local Setup)
 
-| Method | Endpoint | Access | Description |
+Tested in GitHub Codespaces and local Node.js environments:
+
+1. **Install dependencies:**
+   Run `npm install` in the project root.
+
+2. **Create `.env` from `.env.example`:**
+   Run `cp .env.example .env` and set `SESSION_SECRET` to a random string of **at least 32 characters** (never commit `.env` to Git).
+
+3. **Start the server:**
+   Run `npm start` and open the local or forwarded URL shown in the terminal.
+
+---
+
+## REST API Endpoints
+
+| Method | Path | Auth / Ownership | Purpose |
 | :--- | :--- | :--- | :--- |
-| `POST` | `/api/auth/register` | Public / Admin | Register a new portfolio user |
-| `POST` | `/api/auth/login` | Public | Authenticate user and return token |
-| `GET` | `/api/users/:username` | Public | Retrieve user profile, CV tabs, and resume link |
-| `PUT` | `/api/users/:username` | Owner Only | Update CV fields or upload a new PDF resume |
-| `GET` | `/api/projects` | Public | List all published projects |
-| `GET` | `/api/projects/:id` | Public | Get full project details, carousel media & tech tab |
-| `POST` | `/api/projects` | Authenticated | Create a new project with media & sample files |
-| `PUT` | `/api/projects/:id` | Owner Only | Update an existing project |
-| `DELETE` | `/api/projects/:id` | Owner Only | Delete a project and its associated files |
-| `GET` | `/api/projects/:id/download` | Public | Download the sample package for a private project |
+| `POST` | `/api/register` | No | Register a new user (`201`, `400`, `409`) |
+| `POST` | `/api/login` | No | Authenticate user and regenerate session (`200`, `400`, `401`) |
+| `POST` | `/api/logout` | Yes | Destroy active session and clear cookie (`200`, `401`) |
+| `GET` | `/api/projects` | Yes (owner) | List projects owned by the signed-in user (`WHERE owner_id = ?`) |
+| `POST` | `/api/projects` | Yes | Create a new project owned by `req.session.userId` (`201`, `400`, `401`) |
+| `GET` | `/api/projects/:id` | Yes (owner only) | Get a specific project if owned by current user (`200`, `401`, `403`/`404`) |
+| `PUT` | `/api/projects/:id` | Yes (owner only) | Update a project owned by current user (`200`, `400`, `401`, `403`/`404`) |
+| `DELETE` | `/api/projects/:id` | Yes (owner only) | Delete a project owned by current user (`200`, `401`, `403`/`404`) |
+| `GET` | `/api/cv` | Yes (owner) | List CV entries owned by the signed-in user |
+| `POST` | `/api/cv` | Yes | Create a CV entry owned by `req.session.userId` |
+| `PUT` | `/api/cv/:id` | Yes (owner only) | Update a CV entry owned by current user |
+| `DELETE` | `/api/cv/:id` | Yes (owner only) | Delete a CV entry owned by current user |
 
 ---
 
-## Collaborators
+## Security Tests
 
-Developed and maintained by:
+Executable security scripts are located in `tests/`:
 
-* **Miguel Ribeiro** — [@MiguelRibeiro1210](https://github.com/MiguelRibeiro1210)
-* **Pedro** — [@Pedro-p21](https://github.com/Pedro-p21)
+1. **Invalid login (`401` & uniform message):** Verifies unknown email and wrong password return `401` with the same non-revealing message.
+2. **Cross-user isolation (`403`/`404`):** Verifies User B cannot read, edit, or delete User A's records even when supplying User A's record ID.
+3. **Post-logout session invalidation:** Verifies an old session cookie is rejected (`401`) after `POST /api/logout`.
+
+Run the test suite (with the app running or via script as configured in `tests/`):
+
+* `node tests/01-invalid-login.js`
+* `node tests/02-ownership.js`
+* `node tests/03-session-logout.js`
+
+---
+
+## Known Limitations
+
+* File uploads stored locally on disk may not persist across ephemeral container restarts unless backed by external object storage.
+* Rate limiting, CSRF tokens, and automated CI/deployment are not yet enabled in the baseline build (planned for future hardening).
+
+---
+
+## Contributions, AI Tools & Credits
+
+* **Team & Contributions:**
+    * **Pedro (`@Pedro-p21`)
+    * **Miguel Ribeiro (`@MiguelRibeiro1210`):
+    *
+* **AI Tools Used:** Used Figma Agent to create a good looking website design.
+* **Course & External References:** Adapted patterns from course lab exercises (Express + SQLite session & ownership conventions); `.env`, `node_modules`, and SQLite database files are excluded via `.gitignore`.
