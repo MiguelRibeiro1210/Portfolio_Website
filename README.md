@@ -64,7 +64,7 @@ SQLite Database (users, projects, cv_entries)
 
 ## Getting Started (Codespaces & Local Setup)
 
-Tested in GitHub Codespaces and local Node.js environments:
+Install dependencies and configure the app from the project root:
 
 1. **Install dependencies:**
    Run `npm install` in the project root.
@@ -72,8 +72,7 @@ Tested in GitHub Codespaces and local Node.js environments:
 2. **Create `.env` from `.env.example`:**
    Run `cp .env.example .env` and set `SESSION_SECRET` to a random string of **at least 32 characters** (never commit `.env` to Git).
 
-3. **Start the server:**
-   Run `npm start` and open the local or forwarded URL shown in the terminal.
+3. **Start the server.** Run `npm start`. The server entry point is currently empty, so this command exits until the server is implemented.
 
 ---
 
@@ -98,17 +97,17 @@ Tested in GitHub Codespaces and local Node.js environments:
 
 ## Security Tests
 
-Executable security scripts are located in `tests/`:
+The files in `tests/` are currently empty. The planned checks are:
 
 1. **Invalid login (`401` & uniform message):** Verifies unknown email and wrong password return `401` with the same non-revealing message.
 2. **Cross-user isolation (`403`/`404`):** Verifies User B cannot read, edit, or delete User A's records even when supplying User A's record ID.
 3. **Post-logout session invalidation:** Verifies an old session cookie is rejected (`401`) after `POST /api/logout`.
 
-Run the test suite (with the app running or via script as configured in `tests/`):
+Once implemented, run the scripts from the project root with the app running as required by the tests:
 
-* `node tests/01-invalid-login.js`
-* `node tests/02-ownership.js`
-* `node tests/03-session-logout.js`
+* `node tests/01_invalid_login.js`
+* `node tests/02_ownership.js`
+* `node tests/03_session_logout.js`
 
 ---
 
