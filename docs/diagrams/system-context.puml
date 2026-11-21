@@ -1,0 +1,34 @@
+@startuml
+!theme plain
+title Portfolio - planned frontend context
+left to right direction
+skinparam shadowing false
+skinparam componentStyle rectangle
+
+actor "Portfolio visitor" as Visitor
+actor "Portfolio owner" as Owner
+rectangle "Frontend design scope" {
+  component "Portfolio frontend\nScreens, navigation, forms,\nslideshow and file interactions" as Frontend
+}
+rectangle "External dependencies" #F0F0F0 {
+  component "Backend API" as Backend
+  database "Portfolio database" as Database
+  component "Durable file storage" as Files
+}
+
+Visitor --> Frontend : explore projects, profile and permitted files
+Owner --> Frontend : manage portfolio and account actions
+Frontend --> Backend : planned API requests and responses
+Backend --> Database : planned record persistence
+Backend --> Files : planned media, releases and CV storage
+
+note bottom of Frontend
+  This diagram specifies the target frontend.
+  No direct database connection or browser persistence fallback.
+end note
+note bottom of Backend
+  External context only, not a backend design.
+  Authentication, authorization and persistence
+  will be implemented separately.
+end note
+@enduml
