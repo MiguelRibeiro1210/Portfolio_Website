@@ -1,0 +1,41 @@
+@startuml
+!theme plain
+title Portfolio - planned project update happy path
+skinparam shadowing false
+
+actor "Portfolio owner" as Owner
+box "Frontend design scope"
+  boundary "Project studio" as View
+  control "Interaction coordinator" as Interaction
+  participant "API client" as Client
+end box
+box "External dependencies" #F0F0F0
+  participant "Backend API" as Backend
+  database "Database / file service" as Storage
+end box
+
+Owner -> View : edit project and select files
+View -> Interaction : collect form and file changes
+Interaction -> Interaction : track unsaved edits
+Owner -> View : Save changes
+View -> Interaction : submit editing intent
+Interaction -> Interaction : validate frontend fields and file selection
+Interaction -> View : show pending state and prevent duplicate submission
+Interaction -> Client : submit project changes and selected files
+Client -> Backend : planned project update request
+Backend -> Backend : authorize owner and validate changes
+Backend -> Storage : persist authorized changes (future connection)
+Storage --> Backend : persistence confirmed
+Backend --> Client : success and saved project result
+Client --> Interaction : successful update
+Interaction -> Interaction : replace displayed data and clear dirty flag
+Interaction -> View : end pending state and show saved result
+View --> Owner : show success feedback
+
+note over View, Client
+  Target behavior, not an implementation report.
+  Happy path: validation, authorization and persistence succeed.
+  Success requires a backend response.
+  No browser persistence fallback will be used.
+end note
+@enduml

@@ -1,8 +1,8 @@
-.env
 node_modules/
-*.db
-*.db-*
+playwright-report/
+test-results/
+.env
 *.sqlite
-*.sqlite-*
-*.sqlite3
-*.sqlite3-*
+*.sqlite-journal
+src/uploads/*
+!src/uploads/a.md
