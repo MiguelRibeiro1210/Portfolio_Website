@@ -1,0 +1,47 @@
+@startuml Architecture_Overview
+!theme plain
+title Portfolio website — target architecture
+skinparam packageStyle rectangle
+skinparam linetype ortho
+skinparam nodesep 40
+skinparam ranksep 60
+
+node "Web Browser" {
+    [JavaScript UI\nHTML, CSS, and page state] as UI
+    [API Client\nfetch()] as Client
+}
+
+cloud "REST API over HTTP(S)\nJSON requests and responses" as Network
+
+node "Backend Server (Node.js + Express)" {
+    package "Presentation Layer" {
+        [Static File Serving\npublic/] as Static
+        [REST Routes & Middleware] as Routes
+    }
+
+    package "Business Layer" {
+        [Services & Domain Rules\nAccounts, tokens, projects, and CV] as Services
+    }
+
+    package "Persistence Layer" {
+        [SQLite Access\nDatabase connection and SQL queries] as Persistence
+    }
+}
+
+database "SQLite\nAccounts, sessions, projects, and profiles" as DB
+
+UI --> Client : invokes API
+Client --> Network : calls API
+UI --> Static : loads pages and assets over HTTP(S)
+Network --> Routes : api requests
+Routes --> Services : validate and handle operations
+Services --> Persistence : read and write records
+Persistence --> DB
+
+note right of Client
+  Planned sign-in uses a JWT access token
+  in the Authorization header and a refresh
+  token in an HttpOnly cookie.
+end note
+
+@enduml
