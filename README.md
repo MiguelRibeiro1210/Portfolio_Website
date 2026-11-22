@@ -72,7 +72,7 @@ Install dependencies and configure the app from the project root:
 2. **Create `.env` from `.env.example`:**
    Run `cp .env.example .env` and set `SESSION_SECRET` to a random string of **at least 32 characters** (never commit `.env` to Git).
 
-3. **Start the server.** Run `npm start`. The server entry point is currently empty, so this command exits until the server is implemented.
+3. **Start the server.** Run `npm start` and open `http://localhost:3000`. Set the `PORT` environment variable to use a different port.
 
 ---
 

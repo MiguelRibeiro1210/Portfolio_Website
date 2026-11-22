@@ -1,0 +1,82 @@
+@startuml
+!theme plain
+title Portfolio domain model
+hide empty members
+skinparam classAttributeIconSize 0
+
+class "User Account" as UserAccount {
+  id
+  name
+  email
+  passwordHash
+  createdAt
+}
+
+class Project {
+    title
+    showcase type
+    description
+    tech stack
+    media galery
+}
+
+class Notes {
+    idea
+    compatibility
+    source repository
+    release notes
+}
+
+class "DownloadableBuild" as Build {
+    build file
+    download permissions
+}
+
+class "Portfolio Profile" as Profile {
+    name
+    role
+    location
+    email
+    about you
+    experience
+    education
+    skills
+    github URL
+    linkedin URL
+}
+
+class "CV File" as CV {
+    cv file
+}
+class "Sign-in Session" as SignInSession {
+    id
+    userId
+    refreshTokenHash
+    createdAt
+    lastRefreshedAt
+    revokedAt
+    expiresAt
+}
+
+class "Provider Identity" as ProviderIdentity {
+  provider
+  providerUserId
+  linkedAt
+}
+
+UserAccount "1" -- "0..*" ProviderIdentity : links
+
+UserAccount "1" -- "0..*" Project : owns
+UserAccount "1" -- "0..1" Profile : owns
+Project "1" *-- "0..1" Build : has
+UserAccount "1" -- "0..*" SignInSession : starts
+Project "1" *-- "0..1" Notes : contains
+Profile "1" *-- "0..1" CV : has
+
+note top of UserAccount
+  Registration requires a name, email, and password.
+  Each normalized email identifies at most one account.
+  Store the bcrypt hash of the submitted password.
+end note
+
+@enduml

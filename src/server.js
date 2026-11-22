@@ -1,4 +1,3 @@
-// Static development server. Backend routes can be connected separately.
 import { createServer } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
 import { resolve, extname, sep } from 'node:path';
