@@ -20,7 +20,7 @@ export function describeDatabaseError(error) {
     return 'The database role lacks permission. Use the schema owner connection in MIGRATION_DATABASE_URL for setup and grant the runtime role the required privileges.';
   }
   if (codes.includes('42P01') || codes.includes('3F000')) {
-    return 'The application schema or an authentication table is missing. Run npm run db:migrate with the schema owner connection first.';
+    return 'The application schema or an application table is missing. Run npm run db:migrate with the schema owner connection first.';
   }
   if (codes.includes('ECONNREFUSED') || codes.includes('ETIMEDOUT') || /timeout/i.test(error?.message || '')) {
     return 'Database connection refused or timed out. Check the host, port, project status, and network access in Supabase Connect.';

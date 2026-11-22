@@ -2,6 +2,7 @@ import express from 'express';
 import { openDatabase } from './db/database.js';
 import { getDatabaseConfig, loadEnvironment, loadAuthConfig, loadOAuthConfig } from './config/env.js';
 import { createAuthRouter } from './routes/auth.routes.js';
+import { createProjectRouter } from './routes/project.routes.js';
 import { createServer } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
 import { resolve, extname, sep } from 'node:path';
@@ -9,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('../public/', import.meta.url));
 const types = { '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon' };
-export function createAppServer({ databaseConfig, database, authConfig = loadAuthConfig(), oauthConfig = loadOAuthConfig() } = {}) {
+export function createAppServer({ databaseConfig, database, authConfig = loadAuthConfig(), oauthConfig = loadOAuthConfig(), projectStorage } = {}) {
   let pendingDatabase = database ? Promise.resolve(database) : undefined;
   const getDatabase = () => {
     pendingDatabase ??= openDatabase(databaseConfig || getDatabaseConfig()).catch(error => {
@@ -22,6 +23,7 @@ export function createAppServer({ databaseConfig, database, authConfig = loadAut
   const app = express();
   app.disable('x-powered-by');
   app.use('/api', createAuthRouter(getDatabase, authConfig, oauthConfig));
+  app.use('/api/projects', createProjectRouter(getDatabase, authConfig, projectStorage));
   app.use(async (req, res) => {
     if (req.method !== 'GET' && req.method !== 'HEAD') {
       res.writeHead(405, { Allow: 'GET, HEAD' }).end('Method not allowed'); return;

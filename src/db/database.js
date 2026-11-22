@@ -1,6 +1,19 @@
 import { Pool } from 'pg';
 import { describeDatabaseError } from './errors.js';
 
+const projectSelect = `SELECT p.id, p.owner_id AS "ownerId", p.title, p.type,
+  p.description, p.stack, p.published, p.created_at AS "createdAt",
+  (SELECT json_build_object('story', n.story, 'compatibility', n.compatibility,
+    'source', n.source, 'releaseNotes', n.release_notes)
+   FROM portfolio.project_notes n WHERE n.project_id = p.id) AS notes,
+  COALESCE((SELECT json_agg(json_build_object('id', f.id, 'name', f.name,
+    'type', f.type, 'size', f.size) ORDER BY f.position)
+    FROM portfolio.project_files f WHERE f.project_id = p.id AND f.kind = 'media'), '[]') AS media,
+  (SELECT json_build_object('id', f.id, 'name', f.name, 'type', f.type,
+    'size', f.size, 'permission', f.permission)
+   FROM portfolio.project_files f WHERE f.project_id = p.id AND f.kind = 'build') AS build
+  FROM portfolio.projects p`;
+
 export async function openDatabase(config) {
   const pool = new Pool(config);
   pool.on('error', () => console.error('An idle PostgreSQL connection failed.'));
@@ -8,9 +21,12 @@ export async function openDatabase(config) {
     await pool.query('SELECT id, name, email, password_hash, created_at FROM portfolio.users LIMIT 0');
     await pool.query('SELECT id, user_id, refresh_token_hash, created_at, last_refreshed_at, expires_at, revoked_at FROM portfolio.sign_in_sessions LIMIT 0');
     await pool.query('SELECT provider, provider_user_id, user_id, linked_at FROM portfolio.provider_identities LIMIT 0');
+    await pool.query('SELECT id, owner_id FROM portfolio.projects LIMIT 0');
+    await pool.query('SELECT project_id FROM portfolio.project_notes LIMIT 0');
+    await pool.query('SELECT id, project_id FROM portfolio.project_files LIMIT 0');
   } catch (error) {
     await pool.end();
-    throw new Error(`Unable to connect to PostgreSQL or find the authentication tables. ${describeDatabaseError(error)}`);
+    throw new Error(`Unable to connect to PostgreSQL or find the application tables. Run pending migrations. ${describeDatabaseError(error)}`);
   }
 
   async function first(sql, parameters) {
@@ -20,6 +36,47 @@ export async function openDatabase(config) {
 
   return {
     close: () => pool.end(),
+    async createProject(project) {
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        await client.query(`INSERT INTO portfolio.projects
+          (id, owner_id, title, type, description, stack, published) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+        [project.id, project.ownerId, project.title, project.type, project.description, project.stack, project.published]);
+        if (project.notes) {
+          const n = project.notes;
+          await client.query(`INSERT INTO portfolio.project_notes
+            (project_id, story, compatibility, source, release_notes) VALUES ($1,$2,$3,$4,$5)`,
+          [project.id, n.story, n.compatibility, n.source, n.releaseNotes]);
+        }
+        for (const [position, file] of [...project.media, ...(project.build ? [project.build] : [])].entries()) {
+          const kind = file === project.build ? 'build' : 'media';
+          await client.query(`INSERT INTO portfolio.project_files
+            (id, project_id, kind, name, type, size, position, permission) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+          [file.id, project.id, kind, file.name, file.type, file.size, position, file.permission ?? null]);
+        }
+        const { rows: [saved] } = await client.query(`${projectSelect} WHERE p.id = $1 AND p.owner_id = $2`, [project.id, project.ownerId]);
+        await client.query('COMMIT');
+        return saved;
+      } catch (error) {
+        await client.query('ROLLBACK');
+        throw error;
+      } finally {
+        client.release();
+      }
+    },
+    async listProjects(ownerId) {
+      const { rows } = await pool.query(`${projectSelect} WHERE p.owner_id = $1 ORDER BY p.created_at, p.id`, [ownerId]);
+      return rows;
+    },
+    findProject(ownerId, id) {
+      return first(`${projectSelect} WHERE p.owner_id = $1 AND p.id = $2`, [ownerId, id]);
+    },
+    findProjectFile(ownerId, id) {
+      return first(`SELECT f.id, f.name, f.type, f.size, f.kind, f.permission
+        FROM portfolio.project_files f JOIN portfolio.projects p ON p.id = f.project_id
+        WHERE p.owner_id = $1 AND f.id = $2`, [ownerId, id]);
+    },
     async insertUser(name, email, passwordHash) {
       const row = await first(
         'INSERT INTO portfolio.users (name, email, password_hash) VALUES ($1, $2, $3) RETURNING id',

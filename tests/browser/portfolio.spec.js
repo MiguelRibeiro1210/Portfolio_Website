@@ -7,7 +7,7 @@ test.beforeEach(async ({ page }) => {
   page.on('console', message => {
     const expectedAuthFailure = /\/api\/(login|refresh)$/.test(message.location().url) &&
       message.text().includes('401');
-    if (message.type() === 'error' && !expectedAuthFailure) errors.push(message.text());
+    if (message.type() === 'error' && !expectedAuthFailure && !(page.__allowNetworkFailure && message.text().includes('net::ERR_CONNECTION_FAILED'))) errors.push(message.text());
   });
   page.__errors=errors;
   await page.goto('/');
@@ -21,15 +21,31 @@ async function navigate(page,hash) {
   await page.evaluate(value=>{location.hash=value;},hash);
   await expect(page.locator('main')).toBeVisible();
 }
+const image = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a5qEAAAAASUVORK5CYII=', 'base64');
+const archive = Buffer.from('504b0506000000000000000000000000000000000000', 'hex');
+async function ensureSignedIn(page) {
+  test.skip(!process.env.TEST_DATABASE_URL, 'Project workflows require the isolated test database.');
+  if (await page.getByRole('button', { name: 'Sign out' }).count()) return;
+  const email = `projects-${randomUUID()}@example.com`;
+  const response = await page.request.post('/api/register', { data: { name: 'Project Maker', email, password: 'sample-password' } });
+  expect(response.status()).toBe(201);
+  await navigate(page, '/signin');
+  await page.getByLabel('Email address').fill(email);
+  await page.getByLabel('Password', { exact: true }).fill('sample-password');
+  await page.getByRole('button', { name: 'Sign in to your gallery' }).click();
+  await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
+}
 async function saveProject(page,{title='A real project',type='open',permission='public'}={}) {
+  await ensureSignedIn(page);
   await navigate(page,'/studio');
   await page.getByLabel('Project title').fill(title);
   await page.locator(`input[name=type][value=${type}]`).check();
   await page.getByLabel('Short description').fill('A project added through the local editor.');
   await page.getByLabel('Tech stack').fill('JavaScript, CSS');
+  await page.locator('#media-input').setInputFiles({ name: 'project.png', mimeType: 'image/png', buffer: image });
   await page.getByLabel('Download permission').selectOption(permission);
   await page.getByLabel('Show in the collection').check();
-  await page.getByRole('button',{name:'Save changes'}).click();
+  await page.getByRole('button',{name:'Save changes'}).last().click();
   await expect(page).toHaveURL(/#\/studio\/[\w-]+$/);
   await expect(page.locator('.draft-chip.active')).toContainText(title);
   return page.url().split('/studio/')[1];
@@ -59,7 +75,7 @@ test('all pages render and remain inside the viewport', async ({page}, testInfo)
   await page.getByRole('button',{name:'Explore the collection'}).click();
   await expect(page.locator('#collection')).toBeInViewport();
 });
-test('create, filter, update, and delete a temporary project',async ({page})=>{
+test('create a project, filter the collection, and reload saved details',async ({page})=>{
   const id=await saveProject(page);
   await navigate(page,'/');
   await expect(page.locator('.project-card')).toHaveCount(1);
@@ -72,21 +88,13 @@ test('create, filter, update, and delete a temporary project',async ({page})=>{
   await expect(page.getByRole('tabpanel')).toContainText('Release notes will appear here.');
   await page.getByRole('tab',{name:'Tech specs'}).click();
   await expect(page.getByRole('tabpanel')).toContainText('JavaScript, CSS');
-  await page.getByRole('link',{name:'Edit project'}).click();
-  await page.getByLabel('Project title').fill('An updated project');
-  await page.getByRole('button',{name:'Save changes'}).click();
-  await expect(page.getByText('Project updated for this preview.').last()).toBeVisible();
-  await navigate(page,'/');
+  await page.reload();
+  await expect(page.locator('h1')).toHaveText('A real project');
+  await expect(page.locator('.media-view img')).toBeVisible();
   await navigate(page,`/studio/${id}`);
-  await expect(page.getByLabel('Project title')).toHaveValue('An updated project');
-  await page.getByRole('button',{name:'Delete project',exact:true}).click();
-  await page.getByRole('dialog').getByRole('button',{name:'Cancel'}).click();
-  await expect(page.getByLabel('Project title')).toHaveValue('An updated project');
-  await page.getByRole('button',{name:'Delete project',exact:true}).click();
-  await page.getByRole('dialog').getByRole('button',{name:'Delete project'}).click();
-  await expect(page).toHaveURL(/#\/studio$/);
-  await navigate(page,`/project/${id}`);
-  await expect(page.getByRole('heading',{name:'This room is empty.'})).toBeVisible();
+  await expect(page.getByLabel('Project title')).toHaveValue('A real project');
+  await expect(page.getByLabel('Project title')).toBeDisabled();
+  await expect(page.getByText('Saved project · read-only')).toBeVisible();
 });
 test('featured project controls cycle through saved projects',async ({page})=>{
   await saveProject(page,{title:'First project'});
@@ -109,35 +117,24 @@ test('fresh visits start at sign-in and explicit page links remain available',as
   await page.reload();
   await expect(page.getByRole('heading',{name:'Behind the projects.'})).toBeVisible();
 });
-test('preview works without browser storage and resets records and files on refresh',async ({page})=>{
+test('saved projects and files survive reload without browser storage',async ({page})=>{
   await page.addInitScript(() => {
     for (const name of ['indexedDB','localStorage','sessionStorage']) {
       Object.defineProperty(window,name,{get(){throw new Error(`Unexpected browser storage access: ${name}`);}});
     }
   });
   await page.reload();
-  await expect(page.getByRole('heading',{name:'Ideas. Unboxed.'})).toBeVisible();
-  const id=await saveProject(page,{title:'Temporary project'});
-  await expect(page.getByRole('button', { name: 'Delete project', exact: true })).toBeVisible();
-  await page.locator('#build-input').setInputFiles({name:'preview.zip',mimeType:'application/zip',buffer:Buffer.from('preview-file')});
-  await page.getByRole('button',{name:'Save changes'}).click();
-  await expect(page.getByText('Project updated for this preview.').last()).toBeVisible();
-  const fileId=await page.locator('[data-filename="preview.zip"]').getAttribute('data-download');
-  await navigate(page,'/studio?section=profile');
-  await page.getByLabel('Name',{exact:true}).fill('Temporary maker');
-  await page.getByRole('button',{name:'Save profile'}).click();
-  await expect(page.getByText('Profile updated for this preview.')).toBeVisible();
-  await navigate(page,'/studio?section=security');
-  await page.getByLabel('Default permission for future downloads').selectOption('none');
-  await page.getByRole('button',{name:'Save preference'}).click();
-  await expect(page.getByText('Download preference updated for this preview.')).toBeVisible();
+  const id=await saveProject(page,{title:'Persistent project'});
   await page.reload();
-  await expect(page.getByLabel('Default permission for future downloads')).toHaveValue('request');
-  await navigate(page,'/studio?section=profile');
-  await expect(page.getByLabel('Name',{exact:true})).toHaveValue('');
+  await expect(page.getByLabel('Project title')).toHaveValue('Persistent project');
+  await navigate(page,'/');
+  await expect(page.locator('.project-card')).toContainText('Persistent project');
   await navigate(page,`/project/${id}`);
+  await expect(page.locator('.media-view img')).toBeVisible();
+  await page.getByRole('button',{name:'Sign out'}).click();
+  await expect(page).toHaveURL(/#\/signin$/);
+  await page.goto(`/#/project/${id}`);
   await expect(page.getByRole('heading',{name:'This room is empty.'})).toBeVisible();
-  expect(await page.evaluate(async id=>(await import('/js/api.js')).repository.file(id),fileId)).toBeUndefined();
 });
 test('wheel gestures advance one slide and release page scrolling at the end',async ({page})=>{
   await saveProject(page,{title:'First project'});
@@ -178,34 +175,72 @@ test('horizontal touch swipes and keyboard arrows navigate featured projects',as
   await expect(page.locator('.featured-copy h2')).toHaveText('First project');
   await expect(page.getByRole('region',{name:'Featured projects'})).toBeFocused();
 });
-test('temporary media sorting, removal, and build downloads work',async ({page})=>{
+test('optional notes and build are saved with ordered gallery media and owner downloads',async ({page})=>{
+  await ensureSignedIn(page);
   await navigate(page,'/studio');
   await page.getByLabel('Project title').fill('Media project');
-  await page.getByLabel('Download permission').selectOption('public');
-  await page.getByLabel('Show in the collection').check();
-  const image=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a5qEAAAAASUVORK5CYII=','base64');
+  await page.getByLabel('Short description').fill('A gallery and a release.');
+  await page.getByLabel('Tech stack').fill('JavaScript');
+  await page.getByLabel('Download permission').selectOption('none');
+  await page.locator('summary').click();
+  await page.getByLabel('The idea',{exact:true}).fill('A saved idea.');
+  await page.getByLabel('Release notes',{exact:true}).fill('First release.');
   await page.locator('#media-input').setInputFiles([{name:'first.png',mimeType:'image/png',buffer:image},{name:'second.png',mimeType:'image/png',buffer:image}]);
-  await page.locator('#build-input').setInputFiles({name:'release.zip',mimeType:'application/zip',buffer:Buffer.from('local-release')});
-  await page.getByRole('button',{name:'Save changes'}).click();
-  await expect(page).toHaveURL(/#\/studio\/[\w-]+$/);const id=page.url().split('/studio/')[1];
-  await page.getByRole('button',{name:'Move second.png earlier'}).click();
-  await page.getByRole('button',{name:'Save changes'}).click();
-  await navigate(page,'/');
-  await navigate(page,`/studio/${id}`);
-  await expect(page.locator('.file-list [data-file-row]').first()).toContainText('second.png');
+  await page.locator('#build-input').setInputFiles({name:'release.zip',mimeType:'application/zip',buffer:archive});
+  await page.getByRole('button',{name:'Save changes'}).last().click();
+  await expect(page).toHaveURL(/#\/studio\/[\w-]+$/);
+  const id=page.url().split('/studio/')[1];
+  await page.reload();
   await navigate(page,`/project/${id}`);
+  await expect(page.locator('.project-story')).toHaveText('A saved idea.');
   await expect(page.locator('.media-view img')).toBeVisible();
-  await page.getByRole('button',{name:'View first.png'}).click();
   await expect(page.locator('.media-view img')).toHaveAttribute('alt','first.png');
+  await page.getByRole('button',{name:'View second.png'}).click();
+  await expect(page.locator('.media-view img')).toHaveAttribute('alt','second.png');
+  await page.getByRole('tab',{name:'Release notes'}).click();
+  await expect(page.getByRole('tabpanel')).toContainText('First release.');
   const download=page.waitForEvent('download');
   await page.getByRole('button',{name:'release.zip'}).click();
   expect((await download).suggestedFilename()).toBe('release.zip');
-  await navigate(page,`/studio/${id}`);
-  await page.getByRole('button',{name:'Remove second.png'}).click();
-  await page.getByRole('button',{name:'Save changes'}).click();
+});
+
+test('drafts stay in the studio and cancelling does not create a project',async ({page})=>{
+  await ensureSignedIn(page);
+  await navigate(page,'/studio');
+  await page.getByLabel('Project title').fill('Unsaved project');
+  await page.getByRole('link',{name:'Preview',exact:true}).click();
+  await page.getByRole('button',{name:'Leave page'}).click();
+  await expect(page.locator('.draft-chip')).toHaveCount(0);
+  await navigate(page,'/studio');
+  await page.getByLabel('Project title').fill('Draft project');
+  await page.getByLabel('Short description').fill('Not in the collection.');
+  await page.getByLabel('Tech stack').fill('CSS');
+  await page.locator('#media-input').setInputFiles({name:'draft.png',mimeType:'image/png',buffer:image});
+  await page.getByLabel('Show in the collection').uncheck();
+  await page.getByRole('button',{name:'Save changes'}).last().click();
+  await expect(page.locator('.draft-chip')).toContainText('Draft');
+  await page.reload();
+  await expect(page.locator('.draft-chip')).toContainText('Draft project');
   await navigate(page,'/');
-  await navigate(page,`/studio/${id}`);
-  await expect(page.locator('.file-list [data-file-row]')).toHaveCount(1);
+  await expect(page.locator('.project-card')).not.toContainText(['Draft project']);
+});
+
+test('a failed submission retains fields and files and can be retried',async ({page})=>{
+  await ensureSignedIn(page);
+  await navigate(page,'/studio');
+  await page.getByLabel('Project title').fill('Retry project');
+  await page.getByLabel('Short description').fill('Keep these details.');
+  await page.getByLabel('Tech stack').fill('JavaScript');
+  await page.locator('#media-input').setInputFiles({name:'retry.png',mimeType:'image/png',buffer:image});
+  // Simulate a dropped response before any backend mutation.
+  await page.route('**/api/projects', route => route.abort('connectionfailed'), { times: 1 });
+  page.__allowNetworkFailure = true;
+  await page.getByRole('button',{name:'Save changes'}).last().click();
+  await expect(page.getByLabel('Project title')).toHaveValue('Retry project');
+  await expect(page.locator('#pending-media')).toContainText('retry.png');
+  await expect(page.getByRole('button',{name:'Save changes'}).last()).toBeEnabled();
+  await page.getByRole('button',{name:'Save changes'}).last().click();
+  await expect(page.locator('.draft-chip.active')).toContainText('Retry project');
 });
 test('profile placeholders become real content and CV downloads work',async ({page})=>{
   await navigate(page,'/about');
@@ -235,6 +270,7 @@ test('profile placeholders become real content and CV downloads work',async ({pa
   await expect(page.locator('img')).toHaveCount(0);
 });
 test('unsaved changes are protected and preferences apply to new projects',async({page})=>{
+  await ensureSignedIn(page);
   await navigate(page,'/studio');
   await page.getByLabel('Project title').fill('Unsaved work');
   await page.getByRole('link',{name:'Preview',exact:true}).click();
