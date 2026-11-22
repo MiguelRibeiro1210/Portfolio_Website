@@ -1,0 +1,22 @@
+@startuml UC001_Registration_Sequence
+!theme plain
+title UC001 — Account registration
+
+actor Browser
+participant "src/server.js" as Server
+participant "src/routes/auth.routes.js" as Routes
+participant "src/services/authService.js" as Auth
+participant "src/db/database.js" as Data
+database PostgreSQL as DB
+
+Browser -> Server : POST /api/register
+Server -> Routes : Dispatch through the /api router
+Routes -> Auth : registerUser(name, email, password)
+Auth -> Auth : Validate fields and hash password with bcrypt
+Auth -> Data : insertUser()
+Data -> DB : Insert account
+DB --> Data : New account ID
+Data --> Auth : Account ID
+Auth --> Routes : ID, name, and email
+Routes --> Browser : 201 Created
+@enduml
