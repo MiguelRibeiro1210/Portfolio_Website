@@ -1,5 +1,6 @@
 import express from 'express';
 import { openDatabase } from './db/database.js';
+import { getDatabaseConfig, loadEnvironment } from './config/env.js';
 import { createAuthRouter } from './routes/auth.routes.js';
 import { createServer } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
@@ -8,12 +9,10 @@ import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('../public/', import.meta.url));
 const types = { '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon' };
-const defaultDatabasePath = fileURLToPath(new URL('../portfolio.sqlite', import.meta.url));
-
-export function createAppServer({ databasePath = defaultDatabasePath, database } = {}) {
+export function createAppServer({ databaseConfig, database } = {}) {
   let pendingDatabase = database ? Promise.resolve(database) : undefined;
   const getDatabase = () => {
-    pendingDatabase ??= openDatabase(databasePath).catch(error => {
+    pendingDatabase ??= openDatabase(databaseConfig || getDatabaseConfig()).catch(error => {
       pendingDatabase = undefined;
       throw error;
     });
@@ -45,13 +44,27 @@ export function createAppServer({ databasePath = defaultDatabasePath, database }
 
   const server = createServer(app);
   server.once('close', () => {
-    pendingDatabase?.then(db => db.close(), () => {}).catch(error => console.error(error));
+    pendingDatabase?.then(db => db.close(), () => {}).catch(() => console.error('Unable to close the PostgreSQL pool.'));
   });
   return server;
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const port = Number(process.env.PORT) || 3000;
-  const database = await openDatabase(process.env.SQLITE_PATH || defaultDatabasePath);
-  createAppServer({ database }).listen(port, '0.0.0.0', () => console.log(`folio is ready at http://localhost:${port}`));
+  loadEnvironment();
+  try {
+    const database = await openDatabase(getDatabaseConfig());
+    const port = Number(process.env.PORT) || 3000;
+    const server = createAppServer({ database });
+    server.on('error', () => {
+      console.error('Unable to start the HTTP server. Check PORT and whether it is already in use.');
+      database.close().finally(() => { process.exitCode = 1; });
+    });
+    for (const signal of ['SIGINT', 'SIGTERM']) {
+      process.once(signal, () => server.close());
+    }
+    server.listen(port, '0.0.0.0', () => console.log(`folio is ready at http://localhost:${port}`));
+  } catch (error) {
+    console.error(error.message);
+    process.exitCode = 1;
+  }
 }

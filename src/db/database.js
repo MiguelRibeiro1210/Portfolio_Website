@@ -1,41 +1,25 @@
-import { readFile } from 'node:fs/promises';
-import sqlite3 from 'sqlite3';
+import { Pool } from 'pg';
+import { describeDatabaseError } from './errors.js';
 
-export async function openDatabase(path) {
-  const schema = await readFile(new URL('./schema.sql', import.meta.url), 'utf8');
-  const db = await new Promise((resolve, reject) => {
-    const connection = new sqlite3.Database(path, error => {
-      if (error) reject(error);
-      else resolve(connection);
-    });
-  });
-
-  const close = () => new Promise((resolve, reject) => {
-    db.close(error => error ? reject(error) : resolve());
-  });
-
+export async function openDatabase(config) {
+  const pool = new Pool(config);
+  // Idle errors must not terminate the process or expose credentials.
+  pool.on('error', () => console.error('An idle PostgreSQL connection failed.'));
   try {
-    await new Promise((resolve, reject) => {
-      db.exec(schema, error => error ? reject(error) : resolve());
-    });
+    await pool.query('SELECT id, name, email, password_hash, created_at FROM portfolio.users LIMIT 0');
   } catch (error) {
-    await close();
-    throw error;
+    await pool.end();
+    throw new Error(`Unable to connect to PostgreSQL or find portfolio.users. ${describeDatabaseError(error)}`);
   }
 
   return {
-    close,
-    insertUser(name, email, passwordHash) {
-      return new Promise((resolve, reject) => {
-        db.run(
-          'INSERT INTO users (name, email, password_hash) VALUES (?, ?, ?)',
-          [name, email, passwordHash],
-          function (error) {
-            if (error) reject(error);
-            else resolve(this.lastID);
-          },
-        );
-      });
+    close: () => pool.end(),
+    async insertUser(name, email, passwordHash) {
+      const { rows } = await pool.query(
+        'INSERT INTO portfolio.users (name, email, password_hash) VALUES ($1, $2, $3) RETURNING id',
+        [name, email, passwordHash],
+      );
+      return rows[0].id;
     },
   };
 }

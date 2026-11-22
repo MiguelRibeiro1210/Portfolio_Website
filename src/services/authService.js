@@ -30,7 +30,7 @@ export async function registerUser(input, getDatabase) {
 
   } catch (error) {
 
-    if (error.code === 'SQLITE_CONSTRAINT' && error.message.endsWith('UNIQUE constraint failed: users.email')) {
+    if (error.code === '23505' && error.constraint === 'users_email_key') {
 
       return { duplicate: true };
 
