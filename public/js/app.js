@@ -1,10 +1,11 @@
-import { repository, emptyWorkspace, authenticate, registerAccount } from './api.js';
+import { repository, emptyWorkspace, registerAccount, signIn, restoreSession, signOut } from './api.js';
 import { showroom, projectPage, studio } from './project.js';
 import { aboutPage } from './cv.js';
 import { authPage } from './auth.js';
 import { escapeHTML as e, icon, link, button, notify, modal, confirmAction } from './ui.js';
 
 let state = emptyWorkspace();
+let account = null;
 let featuredIndex = 0;
 let filter = 'all', projectTab = 'specs', aboutTab = 'about', mediaIndex = 0;
 let pendingFiles = [], removedFiles = new Set(), dirty = false, activeUrls = [];
@@ -16,13 +17,17 @@ let swipeStart = null;
 function route() {
   const [path,query=''] = (location.hash.slice(1)||'/').split('?');
   const parts = path.split('/').filter(Boolean);
-  return { page: parts[0]||'home', id: parts[1], section: new URLSearchParams(query).get('section')||'projects' };
+  const params = new URLSearchParams(query);
+  return { page: parts[0] || 'home', id: parts[1], section: params.get('section') || 'projects', oauth: params.get('oauth') };
 }
 function header(page) {
   const home=page==='home', auth=['signin','register','reset'].includes(page), editor=page==='studio';
+  const accountAction = account
+    ? '<button type="button" class="text-btn nav-account" data-action="signout">Sign out</button>'
+    : auth ? '' : '<a class="nav-link nav-account" href="#/signin">Sign in</a>';
   const editingProject=editor && route().section==='projects';
   const project=state.projects.find(p=>p.id===route().id);
-  return `<header class="site-header"><nav class="nav-left" aria-label="Main navigation"><a class="nav-link" href="#/">${home?'':icon('back',14)}Projects</a>${!auth && !editor ? '<a class="nav-link" href="#/about">About <span class="nav-optional">& CV</span></a>' : ''}</nav><a class="wordmark" href="#/" aria-label="folio home">folio</a><div class="nav-right">${editor ? `${link('Preview','#/','','external')}${editingProject?'<button type="submit" form="project-form" class="btn primary header-save">Save changes</button>':''}` : page==='project' ? `<span class="owner-label">Preview</span>${link('Edit project',project?`#/studio/${project.id}`:'#/studio','nav-edit')}` : page==='about' ? `${state.profile.cvId?button('Download CV','download-cv','nav-cv','download'):''}${link('Edit CV','#/studio?section=profile','nav-edit')}` : auth ? '' : home ? `<span class="owner-label">Your collection</span>${link('Add project','#/studio','nav-workspace','plus')}` : '<span class="nav-tagline">A thoughtful experience, in every state.</span>'}</div></header>`;
+  return `<header class="site-header"><nav class="nav-left" aria-label="Main navigation"><a class="nav-link" href="#/">${home?'':icon('back',14)}Projects</a>${!auth && !editor ? '<a class="nav-link" href="#/about">About <span class="nav-optional">& CV</span></a>' : ''}</nav><a class="wordmark" href="#/" aria-label="folio home">folio</a><div class="nav-right">${editor ? `${link('Preview','#/','','external')}${editingProject?'<button type="submit" form="project-form" class="btn primary header-save">Save changes</button>':''}` : page==='project' ? `<span class="owner-label">Preview</span>${link('Edit project',project?`#/studio/${project.id}`:'#/studio','nav-edit')}` : page==='about' ? `${state.profile.cvId?button('Download CV','download-cv','nav-cv','download'):''}${link('Edit CV','#/studio?section=profile','nav-edit')}` : auth ? '' : home ? `<span class="owner-label">Your collection</span>${link('Add project','#/studio','nav-workspace','plus')}` : '<span class="nav-tagline">A thoughtful experience, in every state.</span>'}${accountAction}</div></header>`;
 }
 function footer() {
   const p=state.profile;
@@ -35,11 +40,27 @@ function stateCard(kind) {
 function statesPage() {
   return `<section class="states-page section-pad"><p class="eyebrow">THE IN-BETWEEN MATTERS, TOO</p><h1>Even the pauses, considered<span class="blue-dot">.</span></h1><p>Quiet loading. Clear recovery. An invitation to begin.</p><div class="states-grid">${['loading','maintenance','empty'].map(stateCard).join('')}</div><div class="state-footnote"><span>Quiet loading. Clear recovery. An invitation to begin.</span><span>FOLIO / EXPERIENCE STATES</span></div></section>`;
 }
+const oauthMessages = new Map([
+  ['unavailable', 'This sign-in provider is not configured.'],
+  ['signin-required', 'Sign in before connecting a provider.'],
+  ['cancelled', 'The provider did not complete the request.'],
+  ['email-required', 'A verified primary email is required to create a new account.'],
+  ['link-required', 'An account already uses that email. Sign in to it, then connect the provider in Access & security.'],
+  ['linked', 'Sign-in provider connected.'],
+  ['already-linked', 'That identity is already linked, or this account already uses that provider.'],
+  ['failed', 'Could not complete provider sign-in. Please try again.'],
+]);
+
 async function render() {
   activeUrls.forEach(URL.revokeObjectURL); activeUrls=[];
+  if (account && route().page === 'signin' && !route().oauth) {
+    history.replaceState(null, '', '#/');
+    previousHash = location.hash;
+  }
   const r=route();
   document.body.dataset.page=r.page;
-  const content = r.page==='home'?showroom(state,filter,featuredIndex):r.page==='project'?projectPage(state,r.id,projectTab,mediaIndex):r.page==='about'?aboutPage(state,aboutTab):r.page==='studio'?studio(state,r.id,r.section):['signin','register','reset'].includes(r.page)?authPage(r.page):r.page==='states'?statesPage():`<section class="not-found section-pad"><p class="eyebrow">404 / A LITTLE OFF THE MAP</p><h1>Let’s head back to the gallery.</h1>${link('Explore the projects','#/','primary','arrow')}</section>`;
+  const oauthStatus = oauthMessages.get(r.oauth) ?? '';
+  const content = r.page==='home'?showroom(state,filter,featuredIndex):r.page==='project'?projectPage(state,r.id,projectTab,mediaIndex):r.page==='about'?aboutPage(state,aboutTab):r.page==='studio'?studio(state,r.id,r.section,account,oauthStatus):['signin','register','reset'].includes(r.page)?authPage(r.page,oauthStatus):r.page==='states'?statesPage():`<section class="not-found section-pad"><p class="eyebrow">404 / A LITTLE OFF THE MAP</p><h1>Let’s head back to the gallery.</h1>${link('Explore the projects','#/','primary','arrow')}</section>`;
   app.innerHTML = `${header(r.page)}<main id="main" tabindex="-1">${content}</main>${footer()}`;
   document.title=`${({home:'The collection',project:'Project experience',about:'Behind the projects',studio:'Your workspace',signin:'Sign in',register:'Create your gallery',reset:'Reset password',states:'The experience'})[r.page]||'Page not found'} — folio`;
   dirty=false; pendingFiles=[]; removedFiles.clear();
@@ -123,11 +144,26 @@ function bindForms() {
       return;
     }
 
-    const result = await authenticate();
-    feedback.textContent = authForm.dataset.mode === 'reset'
-      ? 'No email was sent. Password reset will be available when authentication is connected.'
-      : result.message;
-    if (password) password.value = '';
+    if (authForm.dataset.mode === 'reset') {
+      feedback.textContent = 'No email was sent. Password reset will be available in a future update.';
+      return;
+    }
+
+    const submitButton = authForm.querySelector('[type="submit"]');
+    if (submitButton.disabled) return;
+
+    submitButton.disabled = true;
+    feedback.textContent = 'Signing in…';
+    try {
+      account = await signIn(Object.fromEntries(new FormData(authForm)));
+      if (route().page === 'signin') location.hash = '/';
+      else await render();
+    } catch (error) {
+      feedback.textContent = error.message || 'Could not sign in.';
+    } finally {
+      password.value = '';
+      submitButton.disabled = false;
+    }
   };
   const settingsForm=document.querySelector('#settings-form');
   if(settingsForm) {
@@ -239,18 +275,30 @@ document.addEventListener('click',async event=>{
     if(target.dataset.removeFile){removedFiles.add(target.dataset.removeFile);target.closest('[data-file-row]').remove();dirty=true;}
     if(target.dataset.reorder){const row=target.closest('[data-file-row]');const sibling=Number(target.dataset.direction)<0?row.previousElementSibling:row.nextElementSibling;if(sibling){Number(target.dataset.direction)<0?sibling.before(row):sibling.after(row);dirty=true;const rows=Array.from(row.parentElement.children);rows.forEach((el,i)=>{el.querySelector('[data-direction="-1"]').disabled=i===0;el.querySelector('[data-direction="1"]').disabled=i===rows.length-1;});}}
     const action=target.dataset.action;
+    if (action === 'signout') {
+      target.disabled = true;
+      try {
+        await signOut();
+        account = null;
+        state = repository.reset();
+        dirty = false;
+        location.hash = '/signin';
+      } finally {
+        target.disabled = false;
+      }
+      return;
+    }
     if(action==='collection')document.querySelector('#collection')?.scrollIntoView({behavior:'smooth'});
     if(action==='view-gallery')document.querySelector('.project-stage')?.scrollIntoView({behavior:'smooth',block:'center'});
     if(action==='reset-filter'){filter='all';await render();document.querySelector('#collection').scrollIntoView();}
     if(action==='toggle-password'){const input=document.querySelector('#password');const show=input.type==='password';input.type=show?'text':'password';target.textContent=show?'Hide':'Show';target.setAttribute('aria-pressed',String(show));}
-    if(action==='github')modal('Connect your account',`<p>GitHub sign-in is ready for your authentication provider. No account connection has been made.</p>${link('Explore the studio preview','#/studio','primary','arrow')}`);
     if(action==='download-cv'){if(state.profile.cvId)await download(state.profile.cvId,state.profile.cvName);else notify('Add a PDF in Profile & CV first.');}
     if(action==='delete-project'){const p=state.projects.find(p=>p.id===route().id);if(p)confirmAction('Delete this project?',`“${e(p.title)}” and its temporary files will be removed.`, 'Delete project',async()=>{const next=structuredClone(state);next.projects=next.projects.filter(item=>item.id!==p.id);await updatePreview(next,[],[...(p.media||[]),...(p.builds||[])].map(f=>f.id));location.hash='/studio';notify('Project deleted.');});}
     if(action==='add-project')location.hash='/studio';
     if(action==='retry'){notify('Gallery is ready.');location.hash='/';}
     if(action==='preview-loading'){modal('Curating your collection',`<div class="loading-preview"><div class="loading-bar"></div><p role="status">Preparing your gallery…</p></div>`);setTimeout(()=>{document.querySelector('#modal').close();notify('Your gallery is ready.');},1600);}
     if(action==='terms')modal('Terms of use','<p>This portfolio currently runs as a frontend preview. Service terms will appear here before online accounts and publishing become available.</p>');
-    if(action==='privacy')modal('Your privacy','<p>Preview changes and selected files are held temporarily in memory and disappear when you reload or close the page. Nothing is written to browser storage. Credentials are never saved. Account and database connections are pending.</p>');
+    if(action==='privacy')modal('Your privacy','<p>Preview projects and files are held in memory and disappear when you reload or close the page. The server handles account registration and sign-in. A session cookie keeps you signed in across reloads.</p>');
     if(target.closest('#modal') && target.tagName==='A')document.querySelector('#modal').close();
   }catch(error){notify(error.message||'Something went wrong. Please try again.');}
 });
@@ -268,5 +316,10 @@ window.addEventListener('hashchange',async()=>{
 });
 window.addEventListener('beforeunload',event=>{if(dirty){event.preventDefault();event.returnValue='';}});
 app.innerHTML='<main class="initial-loading"><span class="wordmark">folio</span><div class="loading-bar"></div><p>Making room for your work…</p></main>';
-state=await repository.load();
+state = await repository.load();
+try {
+  account = await restoreSession();
+} catch {
+  notify('Could not restore your session. Please sign in again.');
+}
 await render();

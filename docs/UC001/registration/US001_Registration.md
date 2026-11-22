@@ -80,6 +80,10 @@ POST /api/register
   → Auth route returns 201 with the public account fields
 ```
 
+### Sequence diagram
+
+[Registration](../uml/UC001_Registration_Sequence.puml)
+
 ## 3. Test Plan
 
 1. Submit valid input and verify the `201` response matches the public account fields.

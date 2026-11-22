@@ -64,6 +64,7 @@ main:focus { outline: none; }
 .site-header::after { content: ''; height: 1px; position: absolute; left: var(--gutter); right: var(--gutter); bottom: 0; background: var(--line); }
 .nav-left,.nav-right { display: flex; align-items: center; gap: 44px; }
 .nav-right { justify-content: flex-end; gap: 26px; }
+.nav-right .nav-account { white-space: nowrap; }
 .nav-link { font-size: 12px; display: inline-flex; align-items: center; gap: 9px; padding: 12px 0; white-space: nowrap; color: #d3d8d5; }
 .nav-link:hover { color: white; }
 .wordmark { font-family: Arial,Helvetica,sans-serif; font-weight: 700; letter-spacing: -.055em; font-size: 38px; line-height: 1; }
