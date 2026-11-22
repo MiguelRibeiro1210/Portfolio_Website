@@ -31,6 +31,7 @@ async function saveProject(page,{title='A real project',type='open',permission='
   await page.getByLabel('Show in the collection').check();
   await page.getByRole('button',{name:'Save changes'}).click();
   await expect(page).toHaveURL(/#\/studio\/[\w-]+$/);
+  await expect(page.locator('.draft-chip.active')).toContainText(title);
   return page.url().split('/studio/')[1];
 }
 test('all pages render and remain inside the viewport', async ({page}, testInfo) => {

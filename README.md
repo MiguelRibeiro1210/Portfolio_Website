@@ -116,10 +116,25 @@ Run `npm run test:e2e` for browser tests. Setting `TEST_DATABASE_URL` also enabl
 
 ---
 
+## Continuous Integration
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every push to any branch or tag, pull requests, and manual dispatch. Each run installs dependencies with `npm ci`, starts a disposable PostgreSQL 17 service, installs Chromium, and executes [`scripts/ci.sh`](scripts/ci.sh) on Node.js 24.
+
+The script checks JavaScript syntax and runs unit, PostgreSQL integration, and desktop/mobile browser tests. This project executes JavaScript directly, so there is no separate transpilation or bundle build. Integration tests apply their own initial migration; CI does not need Supabase credentials. Browser reports and failure traces are retained as workflow artifacts for seven days.
+
+To run the same checks locally, first install dependencies and Chromium (`npm ci --include=dev` and `npx playwright install chromium`), then provide a separate disposable PostgreSQL database ending in `_test`:
+
+```bash
+TEST_DATABASE_URL=postgresql://postgres:password@127.0.0.1:5432/portfolio_test \
+TEST_DATABASE_SSL=false bash scripts/ci.sh
+```
+
+The script requires the test database URL so integration tests cannot silently skip, and ignores local application database credentials. GitHub runs the workflow after commits are pushed; unpushed local commits cannot trigger Actions.
+
 ## Known Limitations
 
 * File uploads stored locally on disk may not persist across ephemeral container restarts unless backed by external object storage.
-* Rate limiting, CSRF tokens, and automated CI/deployment are not yet enabled in the baseline build (planned for future hardening).
+* Rate limiting, CSRF tokens, and automated deployment are not yet enabled in the baseline build (planned for future hardening).
 
 ---
 
