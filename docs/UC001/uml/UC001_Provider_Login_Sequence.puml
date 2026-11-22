@@ -1,0 +1,48 @@
+@startuml UC001_Provider_Login_Sequence
+!theme plain
+title UC001 — Google or GitHub sign-in with a linked account
+
+actor Browser
+participant "src/server.js" as Server
+participant "src/routes/auth.routes.js" as Routes
+participant "src/routes/oauth.routes.js" as OAuth
+participant "src/services/oauthService.js" as ProviderService
+participant "Google or GitHub" as Provider
+participant "src/services/authService.js" as Auth
+participant "src/services/tokenService.js" as Tokens
+participant "src/db/database.js" as Data
+database PostgreSQL as DB
+
+Browser -> Server : GET /api/oauth/:provider/start
+Server -> Routes : Dispatch to /api
+Routes -> OAuth : Dispatch to /oauth
+OAuth -> ProviderService : beginOAuth()
+ProviderService --> OAuth : Provider URL and signed transaction
+OAuth --> Browser : Set transaction cookie and redirect
+Browser -> Provider : Sign in and authorize
+Provider --> Browser : Redirect back with code and state
+
+Browser -> Server : GET /api/oauth/:provider/callback
+Server -> Routes : Dispatch to /api
+Routes -> OAuth : Dispatch to callback
+OAuth -> ProviderService : Validate transaction and retrieve identity
+ProviderService -> Provider : Exchange code and request identity
+Provider --> ProviderService : Verified provider identity
+ProviderService --> OAuth : Provider user ID
+OAuth -> Data : findProviderUser()
+Data -> DB : Read account linked to provider identity
+Data --> OAuth : Account ID
+OAuth -> Auth : startSession()
+Auth -> Tokens : Generate and hash refresh token
+Tokens --> Auth : Refresh token and hash
+Auth -> Data : insertSession()
+Data -> DB : Save session and refresh token hash
+Auth --> OAuth : Session and refresh token
+OAuth -> Routes : setRefreshCookie()
+OAuth --> Browser : Redirect to app
+
+note over Browser, Routes
+  After the redirect, the browser calls POST /api/refresh
+  to exchange the refresh cookie for an access token.
+end note
+@enduml
