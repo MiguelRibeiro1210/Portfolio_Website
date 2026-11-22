@@ -1,4 +1,4 @@
-import { repository, emptyWorkspace, authenticate } from './api.js';
+import { repository, emptyWorkspace, authenticate, registerAccount } from './api.js';
 import { showroom, projectPage, studio } from './project.js';
 import { aboutPage } from './cv.js';
 import { authPage } from './auth.js';
@@ -99,7 +99,36 @@ function bindForms() {
     };
   }
   const authForm=document.querySelector('#auth-form');
-  if(authForm) authForm.onsubmit=async event=>{event.preventDefault();const result=await authenticate();document.querySelector('#auth-feedback').textContent=authForm.dataset.mode==='reset'?'No email was sent. Password reset will be available when authentication is connected.':result.message;authForm.querySelector('[name=password]')?.value && (authForm.querySelector('[name=password]').value='');};
+  if (authForm) authForm.onsubmit = async event => {
+    event.preventDefault();
+    const feedback = authForm.querySelector('#auth-feedback');
+    const password = authForm.querySelector('[name="password"]');
+
+    if (authForm.dataset.mode === 'register') {
+      const submitButton = authForm.querySelector('[type="submit"]');
+      if (submitButton.disabled) return;
+
+      submitButton.disabled = true;
+      feedback.textContent = 'Creating your account…';
+      try {
+        await registerAccount(Object.fromEntries(new FormData(authForm)));
+        authForm.reset();
+        feedback.textContent = 'Account created successfully.';
+      } catch (error) {
+        feedback.textContent = error.message || 'Could not create the account.';
+      } finally {
+        password.value = '';
+        submitButton.disabled = false;
+      }
+      return;
+    }
+
+    const result = await authenticate();
+    feedback.textContent = authForm.dataset.mode === 'reset'
+      ? 'No email was sent. Password reset will be available when authentication is connected.'
+      : result.message;
+    if (password) password.value = '';
+  };
   const settingsForm=document.querySelector('#settings-form');
   if(settingsForm) {
     settingsForm.onchange=()=>{dirty=true;};

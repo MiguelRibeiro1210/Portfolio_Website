@@ -1,3 +1,6 @@
+import express from 'express';
+import { openDatabase } from './db/database.js';
+import { createAuthRouter } from './routes/auth.routes.js';
 import { createServer } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
 import { resolve, extname, sep } from 'node:path';
@@ -5,8 +8,22 @@ import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('../public/', import.meta.url));
 const types = { '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon' };
-export function createAppServer() {
-  return createServer(async (req, res) => {
+const defaultDatabasePath = fileURLToPath(new URL('../portfolio.sqlite', import.meta.url));
+
+export function createAppServer({ databasePath = defaultDatabasePath, database } = {}) {
+  let pendingDatabase = database ? Promise.resolve(database) : undefined;
+  const getDatabase = () => {
+    pendingDatabase ??= openDatabase(databasePath).catch(error => {
+      pendingDatabase = undefined;
+      throw error;
+    });
+    return pendingDatabase;
+  };
+
+  const app = express();
+  app.disable('x-powered-by');
+  app.use('/api', createAuthRouter(getDatabase));
+  app.use(async (req, res) => {
     if (req.method !== 'GET' && req.method !== 'HEAD') {
       res.writeHead(405, { Allow: 'GET, HEAD' }).end('Method not allowed'); return;
     }
@@ -25,8 +42,16 @@ export function createAppServer() {
       res.writeHead(404, { 'Content-Type': 'text/plain' }).end('Not found');
     }
   });
+
+  const server = createServer(app);
+  server.once('close', () => {
+    pendingDatabase?.then(db => db.close(), () => {}).catch(error => console.error(error));
+  });
+  return server;
 }
+
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const port = Number(process.env.PORT) || 3000;
-  createAppServer().listen(port, '0.0.0.0', () => console.log(`folio is ready at http://localhost:${port}`));
+  const database = await openDatabase(process.env.SQLITE_PATH || defaultDatabasePath);
+  createAppServer({ database }).listen(port, '0.0.0.0', () => console.log(`folio is ready at http://localhost:${port}`));
 }

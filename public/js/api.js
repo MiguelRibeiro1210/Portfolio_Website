@@ -24,3 +24,19 @@ export async function authenticate() {
   return { connected: false, message: 'Sign-in will be available when authentication is connected. You can explore the frontend preview now.' };
 }
 export const emptyWorkspace = initial;
+
+export async function registerAccount({ name, email, password }) {
+  const response = await fetch('/api/register', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, email, password }),
+  });
+
+  const result = await response.json().catch(() => null);
+
+  if (!response.ok || !result?.user) {
+    throw new Error(result?.message || 'Could not create the account.');
+  }
+
+  return result.user;
+}
