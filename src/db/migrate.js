@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { applyMigrations } from './migrations.js';
 import { Pool } from 'pg';
 import { getDatabaseConfig, loadEnvironment } from '../config/env.js';
 import { describeDatabaseError } from './errors.js';
@@ -12,13 +12,10 @@ try {
   });
   pool = new Pool(config);
   pool.on('error', () => console.error('An idle PostgreSQL connection failed.'));
-  const sql = await readFile(new URL('./migrations/001_create_users.sql', import.meta.url), 'utf8');
-  await pool.query(sql);
-  console.log('Applied 001_create_users.sql.');
+  const applied = await applyMigrations(pool);
+  console.log(applied.length ? `Applied or verified: ${applied.join(', ')}.` : 'Database migrations are up to date.');
 } catch (error) {
-  console.error(pool
-    ? `Initial migration failed. ${describeDatabaseError(error)}`
-    : error.message);
+  console.error(pool && error.code ? `Migration failed. ${describeDatabaseError(error)}` : error.message);
   process.exitCode = 1;
 } finally {
   await pool?.end();

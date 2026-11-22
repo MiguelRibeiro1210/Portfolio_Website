@@ -1,5 +1,3 @@
-BEGIN;
-
 -- Intentionally fail if this schema already exists. Inspect existing data first.
 CREATE SCHEMA portfolio;
 
@@ -11,5 +9,3 @@ CREATE TABLE portfolio.users (
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT users_email_key UNIQUE (email)
 );
-
-COMMIT;
