@@ -24,11 +24,11 @@ node "Backend Server (Node.js + Express)" {
     }
 
     package "Persistence Layer" {
-        [SQLite Access\nDatabase connection and SQL queries] as Persistence
+        [PostgreSQL Access\nDatabase connection and SQL queries] as Persistence
     }
 }
 
-database "SQLite\nAccounts, sessions, projects, and profiles" as DB
+database "PostgreSQL\nAccounts, sessions, projects, and profiles" as DB
 
 UI --> Client : invokes API
 Client --> Network : calls API

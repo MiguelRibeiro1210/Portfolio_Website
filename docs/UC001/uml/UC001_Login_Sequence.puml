@@ -1,0 +1,42 @@
+@startuml UC001_Login_Sequence
+!theme plain
+title UC001 — Email and password sign-in
+
+actor Browser
+participant "src/server.js" as Server
+participant "src/routes/auth.routes.js" as Routes
+participant "src/services/authService.js" as Auth
+participant "src/services/tokenService.js" as Tokens
+participant "src/middleware/requireAuth.js" as Guard
+participant "src/db/database.js" as Data
+database PostgreSQL as DB
+
+Browser -> Server : POST /api/login
+Server -> Routes : Dispatch to login route
+Routes -> Auth : loginUser(email, password)
+Auth -> Data : findUserByEmail()
+Data -> DB : Read account and password hash
+Data --> Auth : Account and hash
+Auth -> Auth : Verify password and start session
+Auth -> Tokens : Generate and hash refresh token
+Tokens --> Auth : Refresh token and hash
+Auth -> Data : insertSession()
+Data -> DB : Save session and refresh token hash
+Auth --> Routes : Session and refresh token
+Routes -> Tokens : signAccessToken()
+Tokens --> Routes : Signed access token
+Routes --> Browser : 200 OK with access token and refresh cookie
+
+== Follow-up request for the signed-in account ==
+
+Browser -> Server : GET /api/me with Bearer token
+Server -> Routes : Dispatch to protected route
+Routes -> Guard : Check access
+Guard -> Tokens : verifyAccessToken()
+Tokens --> Guard : Account ID and session ID
+Guard -> Data : findActiveSessionUser()
+Data -> DB : Read account for active session
+Data --> Guard : Account details
+Guard --> Routes : Set req.user and continue
+Routes --> Browser : 200 OK with account details
+@enduml

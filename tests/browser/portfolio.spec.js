@@ -1,9 +1,14 @@
+import { randomUUID } from 'node:crypto';
 import { test, expect } from '@playwright/test';
 
 test.beforeEach(async ({ page }) => {
   const errors=[];
   page.on('pageerror',error=>errors.push(error.message));
-  page.on('console',message=>{if(message.type()==='error')errors.push(message.text());});
+  page.on('console', message => {
+    const expectedAuthFailure = /\/api\/(login|refresh)$/.test(message.location().url) &&
+      message.text().includes('401');
+    if (message.type() === 'error' && !expectedAuthFailure) errors.push(message.text());
+  });
   page.__errors=errors;
   await page.goto('/');
   await expect(page.getByRole('heading',{name:'Back to building.'})).toBeVisible();
@@ -113,6 +118,7 @@ test('preview works without browser storage and resets records and files on refr
   await page.reload();
   await expect(page.getByRole('heading',{name:'Ideas. Unboxed.'})).toBeVisible();
   const id=await saveProject(page,{title:'Temporary project'});
+  await expect(page.getByRole('button', { name: 'Delete project', exact: true })).toBeVisible();
   await page.locator('#build-input').setInputFiles({name:'preview.zip',mimeType:'application/zip',buffer:Buffer.from('preview-file')});
   await page.getByRole('button',{name:'Save changes'}).click();
   await expect(page.getByText('Project updated for this preview.').last()).toBeVisible();
@@ -243,22 +249,47 @@ test('unsaved changes are protected and preferences apply to new projects',async
   await page.getByRole('button',{name:/^Projects/}).click();
   await expect(page.getByLabel('Download permission')).toHaveValue('none');
 });
-test('account forms validate, toggle password, and explain pending backend',async({page})=>{
+test('account forms show invalid credentials and explain an unconfigured provider and pending reset flow',async({page})=>{
   await navigate(page,'/signin');
-  await page.getByLabel('Email address').fill('test@example.com');
+  await page.getByLabel('Email address').fill(`missing-${randomUUID()}@example.com`);
   await page.getByLabel('Password',{exact:true}).fill('password123');
   await page.getByRole('button',{name:'Show',exact:true}).click();
   await expect(page.getByLabel('Password',{exact:true})).toHaveAttribute('type','text');
   await page.getByRole('button',{name:'Sign in to your gallery'}).click();
-  await expect(page.locator('#auth-feedback')).toContainText('authentication is connected');
+  await expect(page.locator('#auth-feedback')).toContainText('Invalid email or password.');
   await expect(page.getByLabel('Password',{exact:true})).toHaveValue('');
-  await page.getByRole('button',{name:'Continue with GitHub'}).click();
-  await expect(page.getByRole('dialog')).toContainText('No account connection has been made');
-  await page.getByRole('button',{name:'Close dialog'}).click();
+  await page.getByRole('link',{name:'Continue with GitHub'}).click();
+  await expect(page.locator('#auth-feedback')).toContainText('This sign-in provider is not configured.');
   await navigate(page,'/reset');await page.getByLabel('Email address').fill('test@example.com');
   await page.getByRole('button',{name:'Request reset link'}).click();
   await expect(page.locator('#auth-feedback')).toContainText('No email was sent');
 });
+test('sign-in survives reload and sign-out ends the browser session', async ({ page }) => {
+  test.skip(!process.env.TEST_DATABASE_URL, 'Set TEST_DATABASE_URL to exercise real authentication.');
+  const email = `browser-${randomUUID()}@example.com`;
+  const password = 'sample-password';
+  const registered = await page.request.post('/api/register', {
+    data: { name: 'Browser Test', email, password },
+  });
+  expect(registered.status()).toBe(201);
+
+  await navigate(page, '/signin');
+  await page.getByLabel('Email address').fill(email);
+  await page.getByLabel('Password', { exact: true }).fill(password);
+  await page.getByRole('button', { name: 'Sign in to your gallery' }).click();
+  await expect(page).toHaveURL(/#\/$/);
+  await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
+  await page.getByRole('button', { name: 'Sign out' }).click();
+  await expect(page).toHaveURL(/#\/signin$/);
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'Back to building.' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Sign out' })).toHaveCount(0);
+});
+
 test('state controls and keyboard tabs work',async({page})=>{
   await page.locator('.skip-link').focus();
   await page.keyboard.press('Enter');

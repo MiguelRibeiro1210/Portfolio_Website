@@ -12,7 +12,7 @@ test('static server serves the application and refuses backend writes', async ()
   try {
     const home=await fetch(base); assert.equal(home.status,200); assert.match(await home.text(),/type="module"/);
     for(const path of ['/css/styles.css','/js/app.js','/js/api.js','/js/project.js','/favicon.svg']) assert.equal((await fetch(base+path)).status,200,path);
-    assert.equal((await fetch(base+'/api/login',{method:'POST'})).status,405);
+    assert.equal((await fetch(base+'/api/projects',{method:'POST'})).status,405);
     assert.equal((await fetch(base+'/missing')).status,404);
     assert.equal((await fetch(base+'/%2e%2e%2fpackage.json')).status,403);
     const head=await fetch(base,{method:'HEAD'});assert.equal(head.status,200);assert.equal(await head.text(),'');

@@ -1,30 +1,17 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 import bcrypt from 'bcrypt';
-import { Pool } from 'pg';
 import { createAppServer } from '../src/server.js';
-import { getDatabaseConfig, loadEnvironment } from '../src/config/env.js';
+import { loadEnvironment } from '../src/config/env.js';
+import { applyMigrations } from '../src/db/migrations.js';
+import { openTestDatabase } from './postgres-fixture.js';
 
 loadEnvironment();
 
 test('PostgreSQL registration validates, handles races, and persists across restart', {
   skip: !process.env.TEST_DATABASE_URL && 'Set TEST_DATABASE_URL to a separate disposable database ending in _test.',
 }, async () => {
-  const config = getDatabaseConfig({
-    DATABASE_URL: process.env.TEST_DATABASE_URL,
-    DATABASE_SSL: process.env.TEST_DATABASE_SSL,
-    DATABASE_CA_CERT_PATH: process.env.TEST_DATABASE_CA_CERT_PATH,
-  });
-  const target = new URL(config.connectionString);
-  assert.match(target.pathname, /_test$/, 'Integration tests require a dedicated database whose name ends in _test.');
-  if (process.env.DATABASE_URL) {
-    const appTarget = new URL(process.env.DATABASE_URL);
-    assert.ok(target.hostname !== appTarget.hostname || target.port !== appTarget.port || target.pathname !== appTarget.pathname,
-      'TEST_DATABASE_URL must not identify the application database.');
-  }
-  const inspection = new Pool({ ...config, max: 1 });
-  let created = false;
+  const { config, inspection, legacyId, applied, close } = await openTestDatabase({ legacy: true });
   let server;
   const account = { name: ' Alex Rivera ', email: ' ALEX@example.com ', password: ' sample-password ' };
   const listen = async () => {
@@ -41,12 +28,10 @@ test('PostgreSQL registration validates, handles races, and persists across rest
     body: typeof body === 'string' ? body : JSON.stringify(body),
   });
   try {
-    const migration = await readFile(new URL('../src/db/migrations/001_create_users.sql', import.meta.url), 'utf8');
-    await inspection.query(migration);
-    created = true;
-    // Re-running setup must refuse to overwrite an existing schema.
-    await assert.rejects(inspection.query(migration), { code: '42P06' });
-    await inspection.query('ROLLBACK');
+    assert.deepEqual(applied, ['001_create_users.sql', '002_create_auth_tables.sql']);
+    assert.deepEqual(await applyMigrations(inspection), []);
+    const legacy = await inspection.query('SELECT id FROM portfolio.users WHERE email = $1', ['legacy@example.com']);
+    assert.equal(legacy.rows[0].id, legacyId);
     await listen();
 
     for (const body of ['{', {}, { ...account, name: 1 }, { ...account, email: 'bad' },
@@ -73,7 +58,7 @@ test('PostgreSQL registration validates, handles races, and persists across rest
     await stop();
     await listen();
     assert.equal((await register(account)).status, 409);
-    const { rows } = await inspection.query('SELECT * FROM portfolio.users');
+    const { rows } = await inspection.query("SELECT * FROM portfolio.users WHERE email <> 'legacy@example.com'");
     assert.equal(rows.length, 1);
     assert.equal(rows[0].id, id);
     assert.equal(rows[0].email, 'alex@example.com');
@@ -83,11 +68,6 @@ test('PostgreSQL registration validates, handles races, and persists across rest
     assert.ok(await bcrypt.compare(account.password, rows[0].password_hash));
   } finally {
     if (server?.listening) await stop();
-    try {
-      await inspection.query('ROLLBACK');
-      if (created) await inspection.query('DROP SCHEMA portfolio CASCADE');
-    } finally {
-      await inspection.end();
-    }
+    await close();
   }
 });

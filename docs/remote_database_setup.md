@@ -10,7 +10,7 @@ This guide explains the change from local SQLite to remote PostgreSQL on Supabas
 | Node.js driver | `sqlite3`, wrapped in promises | `pg`, using one connection pool with at most five connections |
 | Connection configuration | File path / `SQLITE_PATH` | Server-only `DATABASE_URL`, loaded from `.env` |
 | Transport security | Local file access | TLS with certificate and hostname verification |
-| Schema setup | `schema.sql` executed when opening the database | Explicit `001_create_users.sql` migration; startup only checks the table |
+| Schema setup | `schema.sql` executed when opening the database | Numbered migrations tracked in `portfolio.schema_migrations`; startup checks the auth tables |
 | Users table | Unqualified `users` | Explicit `portfolio.users` |
 | Generated ID | `INTEGER PRIMARY KEY`, insertion ID from `lastID` | `INTEGER GENERATED ALWAYS AS IDENTITY`, insertion ID from `RETURNING id` |
 | Query parameters | `?` placeholders | `$1`, `$2`, `$3` placeholders |
@@ -25,7 +25,7 @@ The SQLite file remains an ignored backup. There is no automatic fallback to SQL
 
 The website registration form calls `POST /api/register`. The backend validates and normalizes input, hashes the password with bcrypt cost 12, inserts into `portfolio.users`, and returns the public account fields. Invalid input returns `400`; an existing normalized email returns `409`; success returns `201`. Registration does not sign the account in.
 
-Login, access/refresh tokens, GitHub sign-in, password reset, project/CV persistence, and durable uploads remain future work. Project and profile editors still use temporary preview state. Creating database tables alone will not connect those editors to persistence.
+Password login and token rotation use `portfolio.sign_in_sessions`. Configured Google and GitHub providers use `portfolio.provider_identities`. Password reset, project/CV persistence, and durable uploads remain future work. Project and profile editors still use temporary preview state. Creating database tables alone will not connect those editors to persistence.
 
 ```text
 Website registration form
@@ -54,7 +54,7 @@ PORT=3000
 
 Replace the placeholders using your project's connection details. The password is the database password, not a Supabase publishable/anon key. URL-encode special password characters such as `@`, `:`, `/`, `#`, and `%`. Do not include the literal password-placeholder brackets.
 
-Keep `.env` private and ignored by Git. If you add an `.env.example` for other developers, include placeholders only; the configuration block above can serve as its template. The `NEXT_PUBLIC_SUPABASE_*` variables are not used by this backend. Shell environment variables take precedence over `.env`; check for an old exported value if a file edit seems ineffective.
+Keep `.env` private and ignored by Git. The committed `.env.example` contains placeholders. The `NEXT_PUBLIC_SUPABASE_*` variables are not used by this backend. Shell environment variables take precedence over `.env`; check for an old exported value if a file edit seems ineffective.
 
 ### Configure the root certificate
 
@@ -66,11 +66,9 @@ Do not append SSL query parameters such as `sslmode=require`: this application's
 
 `DATABASE_SSL=false` is supported only for a local PostgreSQL host (`localhost`, `127.0.0.1`, or `::1`). Use verified TLS for Supabase.
 
-## 3. Apply the initial migration
+## 3. Apply database migrations
 
-### New database or new Supabase project
-
-From the repository root:
+From the repository root, run:
 
 ```bash
 npm ci
@@ -78,40 +76,13 @@ npm run db:migrate
 npm start
 ```
 
-Alternatively, paste the complete contents of [`001_create_users.sql`](../src/db/migrations/001_create_users.sql) into Supabase's SQL Editor and run it once, then start the application. Choose one migration method.
+[`001_create_users.sql`](../src/db/migrations/001_create_users.sql) creates the `portfolio` schema and account table. [`002_create_auth_tables.sql`](../src/db/migrations/002_create_auth_tables.sql) adds sessions and provider identities. Session timestamps use integer Unix milliseconds. Account creation uses `TIMESTAMPTZ`.
 
-The migration runs in a transaction and creates:
+The runner serializes migration attempts with a PostgreSQL transaction lock and records applied filenames in `portfolio.schema_migrations`. If the database already has the original `portfolio.users` table and no history, it checks the column definitions, generated identity, and key constraints before recording `001` and applying `002`. Existing users are preserved. A mismatched schema stops the migration for inspection.
 
-```text
-postgres database
-└── portfolio schema
-    └── users table
-        ├── id: generated integer primary key
-        ├── name: required text
-        ├── email: required unique text
-        ├── password_hash: required bcrypt hash
-        └── created_at: timestamp with time zone
-```
+### Inspect the database in WebStorm
 
-It deliberately refuses an existing `portfolio` schema. It neither imports SQLite records nor overwrites existing PostgreSQL tables.
-
-### Existing configured project
-
-The initial migration has already been applied to the project's current remote database. For this project, configure `.env` and run `npm start`; do not rerun `001`.
-
-To check another target before setup, run this read-only query in the SQL Editor:
-
-```sql
-SELECT to_regclass('portfolio.users') AS users_table;
-```
-
-A `portfolio.users` result means the table exists. A null result means it does not; inspect any existing `portfolio` schema before attempting initial setup. After a failed transaction in the SQL Editor, issue `ROLLBACK;` before proceeding if the session is still in an aborted transaction.
-
-### Migration command behavior
-
-**`npm run db:migrate` currently executes only `001_create_users.sql`.** It does not scan the migration directory, maintain a migration-history table, or skip previously applied migrations. Adding `002_*.sql` does not make that command run it.
-
-For subsequent changes, commit a new numbered SQL migration and run its complete contents once through the SQL Editor, using the schema-owner role. Record the filename, target environment, date, and outcome in the change's deployment notes. Apply the same file to each environment in order. For automatic discovery and tracking, implement a version-aware migration runner as a separate change.
+Add a PostgreSQL data source in the Database panel. Use the session-pooler host, port, database, and username from the server connection settings. Configure certificate verification and keep the password in the IDE's local credential store. Select the `portfolio` schema and refresh to see its tables.
 
 ## 4. Verify registration and find saved accounts
 
@@ -144,7 +115,7 @@ Restart the server and check the same row to verify persistence. The server chec
 The completed project migration intentionally started with an empty remote database. **No SQLite data importer is implemented.** The following is the procedure for a future data-preserving migration, not an operation to repeat on the current database:
 
 1. Stop writes to the source application and back up its SQLite file. Work from a read-only copy.
-2. Provision a separate PostgreSQL target and apply the initial schema. Inventory all source tables first; the current migration covers only users.
+2. Provision a separate PostgreSQL target and apply the initial schema. Inventory all source tables first; the initial migration covers users and migration `002` adds authentication tables.
 3. Write a one-off server-side importer using parameterized PostgreSQL inserts in a transaction. Transfer names, normalized emails, original bcrypt hashes, and creation timestamps. Keep password hashes private; do not commit exports.
 4. Decide and document duplicate-email handling before importing. Stop and resolve collisions rather than silently replacing accounts.
 5. Preserve IDs if other records reference them. PostgreSQL's generated-always identity requires `OVERRIDING SYSTEM VALUE` for explicitly supplied IDs. After import, reset its sequence so new accounts receive unused IDs.
@@ -248,15 +219,19 @@ CREATE ROLE portfolio_app LOGIN PASSWORD 'REPLACE_WITH_A_STRONG_PASSWORD';
 GRANT USAGE ON SCHEMA portfolio TO portfolio_app;
 GRANT SELECT, INSERT ON portfolio.users TO portfolio_app;
 GRANT USAGE ON SEQUENCE portfolio.users_id_seq TO portfolio_app;
+GRANT SELECT, INSERT ON portfolio.sign_in_sessions TO portfolio_app;
+GRANT UPDATE (refresh_token_hash, last_refreshed_at, revoked_at)
+  ON portfolio.sign_in_sessions TO portfolio_app;
+GRANT SELECT, INSERT ON portfolio.provider_identities TO portfolio_app;
 ```
 
 Use `portfolio_app.PROJECT_REF` as the session-pooler username in `DATABASE_URL`, with that role's encoded password. Preserve the owner connection separately as `MIGRATION_DATABASE_URL` only where migrations are performed. The migration command prefers `MIGRATION_DATABASE_URL` when set; runtime queries use `DATABASE_URL`.
 
-These are setup instructions: the initial migration does not create `portfolio_app` automatically. Add privileges for new features deliberately. The runtime role should not own schemas or perform DDL.
+Migration `002` grants auth-table privileges to `portfolio_app` if the role already exists. If you create the role afterward, run the grants above. Add privileges for new features deliberately. The runtime role should not own schemas or perform DDL.
 
 ## Testing
 
-`npm test` runs frontend checks, configuration/startup checks, and the registration integration test. The integration test is explicitly skipped until `TEST_DATABASE_URL` is configured.
+`npm test` runs frontend checks, configuration/startup checks, and the registration, login, and OAuth integration tests. The integration tests are skipped until `TEST_DATABASE_URL` is configured.
 
 Use a separate disposable PostgreSQL database whose name ends in `_test`, never the application database:
 
@@ -271,9 +246,9 @@ For a remote test database, enable TLS and configure `TEST_DATABASE_CA_CERT_PATH
 npm run test:integration
 ```
 
-The integration test creates its own `portfolio` schema, checks validation, concurrent duplicate emails, bcrypt hashing, and persistence after restarting the server, and removes only its own schema afterward. It refuses an existing schema and never falls back to the application's `DATABASE_URL`.
+The integration tests serialize access to their temporary `portfolio` schema and remove it after use. They refuse an existing schema and never fall back to the application's `DATABASE_URL`. The suite exercises both a fresh migration and an upgrade that preserves an existing account.
 
-`npm run test:e2e` uses a separate database-free frontend preview server. Browser layout tests alone do not verify remote persistence. New schema migrations should also be exercised against an isolated test database before deployment; current registration tests do not discover or apply later migration files automatically.
+`npm run test:e2e` runs browser preview tests. Setting `TEST_DATABASE_URL` also enables browser sign-in, reload, and logout against the disposable database.
 
 ## Troubleshooting
 
@@ -283,8 +258,8 @@ The integration test creates its own `portfolio` schema, checks validation, conc
 | `SELF_SIGNED_CERT_IN_CHAIN` | Configure `DATABASE_CA_CERT_PATH` with the Supabase root CA and retain TLS verification. |
 | Password authentication failure | Check database username/password and URL encoding; API keys are not database passwords. |
 | Configuration edit seems ignored | Check exported shell variables and whether `MIGRATION_DATABASE_URL` overrides the migration target. |
-| Initial migration reports an existing schema | Inspect it; do not rerun `001` or drop existing data. |
-| New numbered migration has no effect | The current runner executes only `001`; apply the new file explicitly through the SQL Editor. |
+| Existing schema does not match migration `001` | Inspect the columns and constraints on `portfolio.users` before retrying. |
+| New numbered migration has no effect | Check the target URL and `portfolio.schema_migrations`. Migration filenames must start with a three-digit number followed by an underscore. |
 | Permission denied after adding a schema | Grant schema `USAGE`, required table actions, and identity-sequence `USAGE`. |
 | Website reports success but Table Editor looks empty | Select the correct schema, then the table, and refresh; check `portfolio.users` using SQL. |
 | Registration works but sign-in does not | Login and token issuance are not implemented yet. |

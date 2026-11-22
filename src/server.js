@@ -1,6 +1,6 @@
 import express from 'express';
 import { openDatabase } from './db/database.js';
-import { getDatabaseConfig, loadEnvironment } from './config/env.js';
+import { getDatabaseConfig, loadEnvironment, loadAuthConfig, loadOAuthConfig } from './config/env.js';
 import { createAuthRouter } from './routes/auth.routes.js';
 import { createServer } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('../public/', import.meta.url));
 const types = { '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon' };
-export function createAppServer({ databaseConfig, database } = {}) {
+export function createAppServer({ databaseConfig, database, authConfig = loadAuthConfig(), oauthConfig = loadOAuthConfig() } = {}) {
   let pendingDatabase = database ? Promise.resolve(database) : undefined;
   const getDatabase = () => {
     pendingDatabase ??= openDatabase(databaseConfig || getDatabaseConfig()).catch(error => {
@@ -21,7 +21,7 @@ export function createAppServer({ databaseConfig, database } = {}) {
 
   const app = express();
   app.disable('x-powered-by');
-  app.use('/api', createAuthRouter(getDatabase));
+  app.use('/api', createAuthRouter(getDatabase, authConfig, oauthConfig));
   app.use(async (req, res) => {
     if (req.method !== 'GET' && req.method !== 'HEAD') {
       res.writeHead(405, { Allow: 'GET, HEAD' }).end('Method not allowed'); return;
@@ -52,9 +52,11 @@ export function createAppServer({ databaseConfig, database } = {}) {
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   loadEnvironment();
   try {
+    const authConfig = loadAuthConfig();
+    const oauthConfig = loadOAuthConfig();
     const database = await openDatabase(getDatabaseConfig());
     const port = Number(process.env.PORT) || 3000;
-    const server = createAppServer({ database });
+    const server = createAppServer({ database, authConfig, oauthConfig });
     server.on('error', () => {
       console.error('Unable to start the HTTP server. Check PORT and whether it is already in use.');
       database.close().finally(() => { process.exitCode = 1; });
