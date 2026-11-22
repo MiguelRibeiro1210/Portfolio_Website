@@ -1,0 +1,52 @@
+@startuml UC002_Create_Project_Sequence
+!theme plain
+title UC002 — Create a project (planned behavior)
+
+actor "Portfolio owner" as Owner
+boundary "Portfolio page / project studio" as View
+participant "public/js/app.js" as App
+participant "public/js/api.js" as Client
+participant "src/server.js" as Server
+participant "src/middleware/requireAuth.js" as Auth
+participant "src/routes/project.routes.js" as API
+participant "src/services/projectService.js" as Service
+participant "src/domain/projectRules.js" as Rules
+participant "src/services/fileStorageService.js" as Files
+participant "src/db/database.js" as Data
+database PostgreSQL as DB
+
+Owner -> View : Add project
+View --> Owner : Blank project form
+Owner -> View : Enter core fields and media\nOptionally add notes and one build\nSelect Show in the collection
+Owner -> View : Save changes
+View -> App : Submit form and selected files
+App -> App : Validate and prevent duplicate submission
+App -> Client : Create project
+Client -> Server : POST /api/projects\nBearer token + multipart form
+Server -> Auth : Verify active session and derive owner ID
+Auth -> API : Continue authenticated request
+API -> Service : Create project for authenticated owner
+Service -> Rules : Validate fields, optional notes/build, and files
+Rules --> Service : Validated project data
+Service -> Files : Stage and store validated files durably
+Files --> Service : Durable file references
+Service -> Data : Create project and associations atomically
+Data -> DB : BEGIN; insert project and ordered media
+opt Any notes field supplied
+  Data -> DB : Insert notes associated with project
+end
+opt Build supplied
+  Data -> DB : Insert build reference and download permission
+end
+Data -> DB : COMMIT
+DB --> Data : Creation committed
+Data --> Service : Saved project and associated metadata
+Service --> API : Saved project and associated metadata
+API --> Client : 201 Created with project
+Client --> App : Saved project
+App -> App : Replace temporary data and clear unsaved state
+App -> View : Show confirmation and open #/studio/:id
+Owner -> View : View collection
+View --> Owner : Display saved published project
+
+@enduml
