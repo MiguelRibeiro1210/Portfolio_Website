@@ -1,6 +1,6 @@
 @startuml UC002_Create_Project_Sequence
 !theme plain
-title UC002 — Create a project (planned behavior)
+title UC002 — Create a project
 
 actor "Portfolio owner" as Owner
 boundary "Portfolio page / project studio" as View

@@ -223,15 +223,16 @@ GRANT SELECT, INSERT ON portfolio.sign_in_sessions TO portfolio_app;
 GRANT UPDATE (refresh_token_hash, last_refreshed_at, revoked_at)
   ON portfolio.sign_in_sessions TO portfolio_app;
 GRANT SELECT, INSERT ON portfolio.provider_identities TO portfolio_app;
+GRANT SELECT, INSERT ON portfolio.projects, portfolio.project_notes, portfolio.project_files TO portfolio_app;
 ```
 
 Use `portfolio_app.PROJECT_REF` as the session-pooler username in `DATABASE_URL`, with that role's encoded password. Preserve the owner connection separately as `MIGRATION_DATABASE_URL` only where migrations are performed. The migration command prefers `MIGRATION_DATABASE_URL` when set; runtime queries use `DATABASE_URL`.
 
-Migration `002` grants auth-table privileges to `portfolio_app` if the role already exists. If you create the role afterward, run the grants above. Add privileges for new features deliberately. The runtime role should not own schemas or perform DDL.
+Migration `003` adds project, notes, and file metadata tables and grants project-table privileges when `portfolio_app` exists. Migration `002` grants auth-table privileges to `portfolio_app` if the role already exists. If you create the role afterward, run the grants above. Add privileges for new features deliberately. The runtime role should not own schemas or perform DDL.
 
 ## Testing
 
-`npm test` runs frontend checks, configuration/startup checks, and the registration, login, and OAuth integration tests. The integration tests are skipped until `TEST_DATABASE_URL` is configured.
+`npm test` runs frontend checks, configuration/startup checks, and the registration, login, OAuth, and project integration tests. The integration tests are skipped until `TEST_DATABASE_URL` is configured.
 
 Use a separate disposable PostgreSQL database whose name ends in `_test`, never the application database:
 
@@ -248,7 +249,7 @@ npm run test:integration
 
 The integration tests serialize access to their temporary `portfolio` schema and remove it after use. They refuse an existing schema and never fall back to the application's `DATABASE_URL`. The suite exercises both a fresh migration and an upgrade that preserves an existing account.
 
-`npm run test:e2e` runs browser preview tests. Setting `TEST_DATABASE_URL` also enables browser sign-in, reload, and logout against the disposable database.
+`npm run test:e2e` runs browser checks. Set `TEST_DATABASE_URL` to exercise project creation, optional notes/builds, file downloads, drafts, retry, and persistence after reload, as well as sign-in and logout. Browser tests use a separate temporary upload directory and clean it up afterward.
 
 ## Troubleshooting
 
@@ -262,4 +263,4 @@ The integration tests serialize access to their temporary `portfolio` schema and
 | New numbered migration has no effect | Check the target URL and `portfolio.schema_migrations`. Migration filenames must start with a three-digit number followed by an underscore. |
 | Permission denied after adding a schema | Grant schema `USAGE`, required table actions, and identity-sequence `USAGE`. |
 | Website reports success but Table Editor looks empty | Select the correct schema, then the table, and refresh; check `portfolio.users` using SQL. |
-| Registration works but sign-in does not | Login and token issuance are not implemented yet. |
+| Project creation fails after an upgrade | Run pending migrations and confirm the runtime role has access to project tables and the server can write `PROJECT_UPLOAD_DIR`. |

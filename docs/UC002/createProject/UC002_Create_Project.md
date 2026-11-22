@@ -6,7 +6,7 @@
 
 As a signed-in user, I want to add a project from my portfolio page, fill in its details and optionally attach notes and a downloadable build, so my work is saved and displayed in my portfolio collection.
 
-This milestone covers project creation, persistence in PostgreSQL, storage of selected files, and displaying the saved project on the owner's page. It follows the existing frontend workflow and describes target behavior: the current project editor saves preview data and files in memory only.
+This milestone covers project creation, persistence in PostgreSQL, storage of selected files, and displaying the saved project on the owner's page. It follows the existing frontend workflow. Creation and authenticated owner reads are implemented; project editing/deletion and visitor access remain separate work. Saved projects are read-only in the studio.
 
 ### 1.2. Acceptance criteria
 
@@ -21,11 +21,11 @@ This milestone covers project creation, persistence in PostgreSQL, storage of se
 
 ### 1.3. Inputs and outputs
 
-**Proposed endpoint** — `POST /api/projects`, authenticated with `Authorization: Bearer <accessToken>`. Use `multipart/form-data` to submit a JSON `project` part and the selected media/build files in one creation request. The browser supplies the multipart boundary.
+**Endpoint** — `POST /api/projects`, authenticated with `Authorization: Bearer <accessToken>`. Use `multipart/form-data` to submit a JSON `project` part and the selected media/build files in one creation request. The browser supplies the multipart boundary.
 
 The table maps the domain terms to the existing frontend field names. The JSON part uses those names; file parts use `media` and `build`. Gallery order follows the submitted media order.
 
-| Domain field | Frontend / request field | Proposed server validation |
+| Domain field | Frontend / request field | Server validation |
 |:---|:---|:---|
 | Title | `title` | Required, non-empty string after trimming. |
 | Showcase type | `type` | Required; `open` (open-source) or `private` (private / closed-source). |
@@ -73,11 +73,11 @@ The `201 Created` response returns `{ "project": { ... } }` containing the serve
 
 - Reuse [UC001 authentication and active-session checks](../../UC001/login/UC001_Login.md). Resolve ownership from the verified session rather than submitted metadata.
 - Follow the [domain model](../../global_artifacts/domain-model.puml): an account owns zero or more projects; each project contains zero or one notes record and zero or one downloadable build. A separate profile record is not a prerequisite for owning projects.
-- For this milestone, the five core project attributes are required. The preview currently requires only a title; frontend and backend validation must be aligned during implementation.
-- The preview accepts multiple release files through `builds`. UC002 follows the model's single optional build, so the editor must accept at most one and map it to `build`.
+- The five core project attributes are required in the creation flow. Text limits are 200 characters for title, 5,000 for description, 1,000 for tech stack, 10,000 each for idea/release notes, 2,000 for compatibility, and 2,048 for the repository URL.
+- The editor accepts one optional build and submits it as `build`. The API returns a nullable `build` object; the client maps it to the existing view's `builds` array.
 - Preserve the existing visibility choice. The documented create-and-display path selects **Show in the collection**. Draft creation is also supported, without displaying the draft in the collection.
 - This use case displays projects on the authenticated owner's portfolio page. Public profile discovery, visitor access, download approval workflows, project editing/deletion, and profile/CV editing are separate work.
-- Choose durable file storage and define text-length, file-count, and total-request limits during implementation. File bytes belong in file storage; PostgreSQL retains project data, file metadata, and associations. Browser memory is not durable storage.
+- File bytes are stored under `PROJECT_UPLOAD_DIR` (default `src/uploads/projects/`), outside the public directory. Use persistent disk when hosting and back it up with PostgreSQL. The gallery accepts 1–10 files and combined uploads are limited to 300 MiB. PostgreSQL retains project data, file metadata, and associations. All file reads require an authenticated owner; visitor access is separate.
 
 ## 2. Analysis and Design
 
@@ -102,14 +102,16 @@ Commit all database records for a creation in one transaction. File storage and 
 |:---|:---|
 | [Project studio and collection](../../../public/js/project.js) | Present required and optional fields, accept one optional build, and render the saved project in the studio, collection, and details views. |
 | [Interaction coordinator](../../../public/js/app.js) | Collect data/files, validate, prevent repeated submission while pending, preserve failed form input, and update the UI only after a successful response. |
-| [API client](../../../public/js/api.js) | Replace the project preview adapter with authenticated creation and owner-scoped loading requests. Retain/use the in-memory access token and existing refresh flow. |
-| `src/routes/project.routes.js`, `src/server.js` | Implement and mount the planned multipart creation and owner-scoped read routes; map service outcomes to HTTP responses. |
+| [API client](../../../public/js/api.js) | Submit authenticated creation and owner-scoped loading requests, retaining the access token in memory and using the existing refresh flow. |
+| `src/routes/project.routes.js`, `src/server.js` | Handle multipart creation and owner-scoped read routes; map service outcomes to HTTP responses. |
 | `src/middleware/requireAuth.js` | Reuse active-session authentication before accepting project creation or owner reads. |
-| `src/domain/projectRules.js`, `src/services/projectService.js` | Implement authoritative validation, ownership assignment, optional associations, and coordination of database/file writes. These project files are currently placeholders. |
-| New project migration, [database adapter](../../../src/db/database.js) | Add project/media/notes/build tables and parameterized transactional writes; scope list/detail reads to the authenticated owner. |
-| `src/services/fileStorageService.js` (to be added) | Validate and store uploads, resolve durable file references, and clean up failed uploads. Apply authorization to file access and build permissions. |
+| `src/domain/projectRules.js`, `src/services/projectService.js` | Validate fields, assign ownership, persist optional associations, and coordinate database/file writes with cleanup on failure. |
+| [Project migration](../../../src/db/migrations/003_create_projects.sql), [database adapter](../../../src/db/database.js) | Add project/media/notes/build tables and parameterized transactional writes; scope list/detail reads to the authenticated owner. |
+| [File storage service](../../../src/services/fileStorageService.js) | Validate and store uploads, resolve durable file references, and clean up failed uploads. Apply authorization to file access and build permissions. |
 
-Use the planned `GET /api/projects` and `GET /api/projects/:id` contracts for reloading the owner's collection and project details. A missing or non-owned project returns `404`; the collection query filters by authenticated owner. The studio includes drafts, while the collection renders only projects with `published: true`.
+Use `GET /api/projects` and `GET /api/projects/:id` contracts for reloading the owner's collection and project details. A missing or non-owned project returns `404`; the collection query filters by authenticated owner. The studio includes drafts, while the collection renders only projects with `published: true`.
+
+`GET /api/projects/files/:id` serves saved media/build bytes to the owning account and returns `404` for missing or non-owned files. Owners can retrieve their own builds regardless of the stored visitor download setting.
 
 ### Sequence diagram
 
