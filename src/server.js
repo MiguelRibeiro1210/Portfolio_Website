@@ -3,6 +3,7 @@ import { openDatabase } from './db/database.js';
 import { getDatabaseConfig, loadEnvironment, loadAuthConfig, loadOAuthConfig } from './config/env.js';
 import { createAuthRouter } from './routes/auth.routes.js';
 import { createCvRouter } from './routes/cv.routes.js';
+import { createShowroomRouter } from './routes/showroom.routes.js';
 import { createProjectRouter } from './routes/project.routes.js';
 import { createServer } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
@@ -26,6 +27,7 @@ export function createAppServer({ databaseConfig, database, authConfig = loadAut
   app.use('/api', createAuthRouter(getDatabase, authConfig, oauthConfig));
   app.use('/api', createCvRouter(getDatabase, authConfig, cvStorage));
   app.use('/api/projects', createProjectRouter(getDatabase, authConfig, projectStorage));
+  app.use('/api/showrooms', createShowroomRouter(getDatabase, projectStorage));
   app.use(async (req, res) => {
     if (req.method !== 'GET' && req.method !== 'HEAD') {
       res.writeHead(405, { Allow: 'GET, HEAD' }).end('Method not allowed'); return;

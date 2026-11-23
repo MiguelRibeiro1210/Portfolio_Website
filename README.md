@@ -187,6 +187,19 @@ Restart the app and use **Continue with Google** or **Continue with GitHub** on 
 
 Run the integration test with `node --test tests/oauth.test.js`. It uses simulated provider responses and exercises the real Express and PostgreSQL flow.
 
+## Public Showroom API
+
+Apply [migration 006](src/db/migrations/006_add_public_showrooms.sql) to assign every account a stable showroom ID. This ID is independent of the account's optional public CV profile.
+
+| Endpoint | Access | Purpose |
+| --- | --- | --- |
+| `GET /api/projects/showroom` | Signed-in owner | Return the owner's showroom ID. |
+| `GET /api/showrooms/:showroomId/projects` | Public | List published projects and return the linked public CV profile ID when available. |
+| `GET /api/showrooms/:showroomId/projects/:projectId` | Public | Return the published project and its media metadata. |
+| `GET /api/showrooms/:showroomId/projects/:projectId/files/:fileId` | Public | Serve gallery media inline and eligible build files as downloads. |
+
+Public reads work for signed-out and signed-in visitors. Drafts and unlisted files return `404`. A build set to `request` or `none` exposes only its permission in the public project response. The public file endpoint returns `404` for those builds. Owners can still use their authenticated file route. Closed-source projects omit the source repository URL from public responses.
+
 ## CV Builder Setup
 
 Apply PostgreSQL migration [004_create_profiles.sql](src/db/migrations/004_create_profiles.sql) with `npm run db:migrate`. To enable PDF uploads, create a private `cv-files` bucket in Supabase Storage, restrict it to `application/pdf`, and set its upload limit to 10 MiB. Set `SUPABASE_URL` and `SUPABASE_STORAGE_KEY` in the server's `.env`. Use a server-side Supabase secret key or legacy service role key for storage access.

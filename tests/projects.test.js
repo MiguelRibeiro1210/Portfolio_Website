@@ -107,6 +107,33 @@ test('project API persists optional associations/files, enforces ownership, vali
     assert.equal(draft.published, false);
     assert.deepEqual(draft.notes, { story: 'Idea', compatibility: 'Linux', source: 'https://example.com/repo', releaseNotes: 'v1' });
     assert.deepEqual(draft.media.map(file => file.name), ['second.png', 'first.png']);
+    const ownerShowroom = (await (await get('/projects/showroom', owner.token)).json()).showroom;
+    const otherShowroom = (await (await get('/projects/showroom', other.token)).json()).showroom;
+    const publicList = `/showrooms/${ownerShowroom.id}/projects`;
+    const publicDetail = id => `${publicList}/${id}`;
+    const publicFile = (row, file) => `${publicDetail(row.id)}/files/${file.id}`;
+    const visitorList = await get(publicList);
+    assert.equal(visitorList.status, 200);
+    assert.equal(visitorList.headers.get('Cache-Control'), 'no-store');
+    const listed = await visitorList.json();
+    assert.equal(listed.showroom.id, ownerShowroom.id);
+    assert.equal(listed.showroom.profileId, null);
+    assert.equal(listed.projects.length, 5);
+    assert.ok(listed.projects.every(item => item.published && !Object.hasOwn(item, 'ownerId')));
+    assert.ok(!listed.projects.some(item => item.id === draft.id));
+    assert.deepEqual((await (await get(publicList, other.token)).json()).projects, listed.projects);
+    assert.deepEqual((await (await get(`/showrooms/${otherShowroom.id}/projects`)).json()).projects, []);
+    assert.equal((await get('/showrooms/00000000-0000-0000-0000-000000000000/projects')).status, 404);
+    assert.equal((await get(publicDetail(project.id))).status, 200);
+    assert.equal((await get(publicDetail(draft.id))).status, 404);
+    assert.equal((await get(publicFile(draft, draft.media[0]))).status, 404);
+    assert.equal((await get(`/showrooms/${otherShowroom.id}/projects/${project.id}`)).status, 404);
+    assert.equal((await get(publicFile(project, draft.media[0]))).status, 404);
+    const publicImage = await get(publicFile(project, project.media[0]));
+    assert.equal(publicImage.status, 200);
+    assert.equal(publicImage.headers.get('Content-Disposition'), 'inline');
+    assert.deepEqual(Buffer.from(await publicImage.arrayBuffer()), image);
+
     const filesBefore = (await readdir(directory)).filter(name => !name.startsWith('.upload-')).sort();
     const countBefore = (await fixture.inspection.query('SELECT count(*) FROM portfolio.projects')).rows[0].count;
     for (const input of ['{', null, [], { ...details, title: ' ' }, { ...details, description: '' }, { ...details, stack: '' }, { ...details, type: 'bad' }, { ...details, published: 'true' }, { ...details, source: 'javascript:alert(1)' }, { ...details, ownerId: other.user.id }, { ...details, title: 'x'.repeat(201) }]) {
@@ -197,9 +224,34 @@ test('project API persists optional associations/files, enforces ownership, vali
     assert.equal(finalProject.media[1].id, first.id);
     assert.equal((await get(`/projects/files/${second.id}`, owner.token)).status, 404);
     assert.equal((await get(`/projects/files/${draft.build.id}`, owner.token)).status, 404);
-    const removedBuild = await update({ ...edit, buildAction: 'remove', mediaOrder: [{ fileId: first.id }] }, replaced.headers.get('ETag'));
+    const shared = await get(publicDetail(finalProject.id));
+    assert.equal(shared.status, 200);
+    assert.deepEqual((await shared.json()).project.build, finalProject.build);
+    const download = await get(publicFile(finalProject, finalProject.build));
+    assert.equal(download.status, 200);
+    assert.match(download.headers.get('Content-Disposition'), /attachment.*new\.zip/);
+    assert.deepEqual(Buffer.from(await download.arrayBuffer()), archive);
+
+    let tag = replaced.headers.get('ETag');
+    for (const permission of ['request', 'none']) {
+      const restricted = await update({
+        ...edit, type: 'private', source: 'https://example.com/private-repo', published: true,
+        permission, mediaOrder: finalProject.media.map(file => ({ fileId: file.id })),
+      }, tag);
+      assert.equal(restricted.status, 200);
+      tag = restricted.headers.get('ETag');
+      const { project: sharedProject } = await (await get(publicDetail(finalProject.id))).json();
+      assert.deepEqual(sharedProject.build, { permission });
+      assert.equal(sharedProject.notes.source, '');
+      assert.equal((await get(publicFile(finalProject, finalProject.build), other.token)).status, 404);
+      assert.equal((await get(publicFile(finalProject, finalProject.build), owner.token)).status, 404);
+      assert.equal((await get(`/projects/files/${finalProject.build.id}`, owner.token)).status, 200);
+    }
+    const removedBuild = await update({ ...edit, buildAction: 'remove', mediaOrder: [{ fileId: first.id }] }, tag);
     assert.equal(removedBuild.status, 200);
     assert.equal((await removedBuild.json()).project.build, null);
+    assert.equal((await get(publicDetail(finalProject.id))).status, 404);
+    assert.equal((await get(publicFile(finalProject, first))).status, 404);
     assert.equal((await get(`/projects/files/${finalProject.build.id}`, owner.token)).status, 404);
     assert.equal((await remove(null)).status, 428);
     assert.equal((await remove(removedBuild.headers.get('ETag'))).status, 204);

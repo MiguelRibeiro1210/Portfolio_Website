@@ -55,7 +55,7 @@ export async function openDatabase(config) {
   const pool = new Pool(config);
   pool.on('error', () => console.error('An idle PostgreSQL connection failed.'));
   try {
-    await pool.query('SELECT id, name, email, password_hash, created_at FROM portfolio.users LIMIT 0');
+    await pool.query('SELECT id, name, email, password_hash, created_at, showroom_id FROM portfolio.users LIMIT 0');
     await pool.query('SELECT id, user_id, refresh_token_hash, created_at, last_refreshed_at, expires_at, revoked_at FROM portfolio.sign_in_sessions LIMIT 0');
     await pool.query('SELECT provider, provider_user_id, user_id, linked_at FROM portfolio.provider_identities LIMIT 0');
     await pool.query('SELECT id, owner_id, revision FROM portfolio.projects LIMIT 0');
@@ -180,6 +180,35 @@ export async function openDatabase(config) {
     },
     findProject(ownerId, id) {
       return first(`${projectSelect(true)} WHERE p.owner_id = $1 AND p.id = $2`, [ownerId, id]);
+    },
+    findOwnerShowroom(ownerId) {
+      return first('SELECT showroom_id AS id FROM portfolio.users WHERE id = $1', [ownerId]);
+    },
+    findPublicShowroom(showroomId) {
+      return first(`SELECT u.showroom_id AS id, profile.public_id AS "profileId"
+        FROM portfolio.users u LEFT JOIN portfolio.profiles profile ON profile.owner_id = u.id
+        WHERE u.showroom_id = $1`, [showroomId]);
+    },
+    async listPublicProjects(showroomId) {
+      const { rows } = await pool.query(`${projectSelect()}
+        JOIN portfolio.users u ON u.id = p.owner_id
+        WHERE u.showroom_id = $1 AND p.published
+        ORDER BY p.created_at, p.id`, [showroomId]);
+      return rows;
+    },
+    findPublicProject(showroomId, projectId) {
+      return first(`${projectSelect()}
+        JOIN portfolio.users u ON u.id = p.owner_id
+        WHERE u.showroom_id = $1 AND p.id = $2 AND p.published`, [showroomId, projectId]);
+    },
+    findPublicProjectFile(showroomId, projectId, fileId) {
+      return first(`SELECT f.id, f.name, f.type, f.kind
+        FROM portfolio.project_files f
+        JOIN portfolio.projects p ON p.id = f.project_id
+        JOIN portfolio.users u ON u.id = p.owner_id
+        WHERE u.showroom_id = $1 AND p.id = $2 AND f.id = $3 AND p.published
+          AND (f.kind = 'media' OR (f.kind = 'build' AND f.permission = 'public'))`,
+      [showroomId, projectId, fileId]);
     },
     findProjectFile(ownerId, id) {
       return first(`SELECT f.id, f.name, f.type, f.size, f.kind, f.permission

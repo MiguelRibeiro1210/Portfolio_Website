@@ -88,6 +88,10 @@ export function createProjectRouter(getDatabase, { jwtSecret }, storage = create
   router.get('/', async (req, res) => {
     res.json({ projects: await (await getDatabase()).listProjects(req.user.id) });
   });
+  router.get('/showroom', async (req, res) => {
+    const showroom = await (await getDatabase()).findOwnerShowroom(req.user.id);
+    res.json({ showroom });
+  });
   router.get('/files/:id', async (req, res, next) => {
     if (!isUUID(req.params.id)) return res.status(404).json({ message: 'File not found.' });
     const file = await (await getDatabase()).findProjectFile(req.user.id, req.params.id);
