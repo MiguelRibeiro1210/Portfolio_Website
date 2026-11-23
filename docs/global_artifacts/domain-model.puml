@@ -17,7 +17,29 @@ class Project {
     showcase type
     description
     tech stack
-    media galery
+    published
+    createdAt
+}
+
+class "Media Item" as MediaItem {
+    name
+    media type
+    size
+    position
+}
+
+class "Feed Post" as FeedPost {
+    createdAt
+}
+
+class "Post Like" as PostLike {
+    createdAt
+}
+
+class "Post Comment" as PostComment {
+    id
+    text
+    createdAt
 }
 
 class Notes {
@@ -71,6 +93,14 @@ UserAccount "1" -- "0..1" Profile : owns
 Project "1" *-- "0..1" Build : has
 UserAccount "1" -- "0..*" SignInSession : starts
 Project "1" *-- "0..1" Notes : contains
+Project "1" *-- "1..*" MediaItem : orders in gallery
+Project "1" -- "0..1" FeedPost : is represented by
+UserAccount "1" -- "0..*" FeedPost : owns
+FeedPost "0..1" --> "1" MediaItem : owns
+FeedPost "1" *-- "0..*" PostLike : receives
+UserAccount "1" -- "0..*" PostLike : gives
+FeedPost "1" *-- "0..*" PostComment : contains
+UserAccount "1" -- "0..*" PostComment : writes
 Profile "1" *-- "0..1" CV : has
 
 note top of UserAccount

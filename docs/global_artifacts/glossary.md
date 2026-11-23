@@ -19,9 +19,19 @@ This glossary accompanies the [portfolio domain model](./domain-model.puml).
 | **CV File** | The optional curriculum vitae document attached to a portfolio profile, currently designed as a PDF. |
 | **Download Permissions** | The rules that determine who can download a build and whether access requires approval. |
 | **Downloadable Build** | A project artifact offered for download subject to its download permissions. The current model allows one optional build per project. |
+| **Feed Cursor** | An opaque boundary for loading the next ordered batch of feed posts or comments. It is not an access credential. |
+| **Feed Post** | A planned UC005 record created automatically for a published project. It associates that project with its owning author, derived cover media, likes, and comments. One project has at most one post. |
+| **Feed Post Cover** | The first image in a project's ordered gallery, or its first video when there is no image. A post reuses this file; builds cannot be covers. |
+| **Infinite Scroll** | Incremental fetching and rendering of feed batches as the viewer approaches the end of the displayed list. It stops when no further published projects remain. |
+| **Media Item** | An individual ordered image or video in a project's media gallery, backed by an existing project-file record. |
 | **Media Gallery** | The collection of images or videos used to showcase a project. |
 | **Password Hash** | The bcrypt result stored for a password-based account and used to check a submitted password. |
 | **Portfolio Profile** | The optional profile owned by an account. It holds the public-facing name, role, location, biography, contact email, experience, education, skills, and professional links, plus an optional CV file. |
+| **Post Comment** | A planned persistent, plain-text message on a feed post, attributed to the signed-in account that submitted it. |
+| **Post Like** | A planned persistent association between an account and a feed post. Each account may like a particular post once and may remove its like. |
+| **Project Feed** | The planned UC005 public landing page showing published projects from multiple users in newest-first order, with incremental loading. |
+| **ProjectPost Component** | A React view of fetched feed-post data. Rendering a component does not create a new persistent feed post. |
+| **Published Project** | A project with collection visibility enabled. UC005 plans to include it in the public feed; unpublished drafts remain owner-only. Showcase type and build download permissions are separate settings. |
 | **Profile Email** | The contact address displayed on a portfolio profile. The account email serves as the login identifier. |
 | **Project** | A piece of work owned and showcased by an account. It includes a title, showcase type, description, tech stack, and media gallery, and can include notes and a downloadable build. |
 | **Project Notes** | Optional supporting details for a project, represented as `Notes` in the model. They cover the idea behind the project, compatibility, the source repository, and release notes. |
@@ -41,3 +51,4 @@ This glossary accompanies the [portfolio domain model](./domain-model.puml).
 | **Source Repository** | The repository that contains a project's source code. A project can link to it from its notes. |
 | **Tech Stack** | The languages, frameworks, libraries, and tools used to build a project. |
 | **User Account** | The application identity that owns projects and can own a portfolio profile. It also associates sign-in sessions and linked provider identities with the same user. |
+| **Visitor** | Someone browsing without an application session. Under UC005, visitors can read the feed, cover media, and comments, but must sign in to like or comment. |

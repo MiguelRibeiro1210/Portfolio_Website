@@ -1,6 +1,6 @@
 @startuml
 !theme plain
-title Portfolio - planned frontend layers
+title Portfolio - frontend layers
 top to bottom direction
 skinparam shadowing false
 skinparam componentStyle rectangle
@@ -9,6 +9,7 @@ package "Frontend design scope" {
   package "Presentation layer" {
     component "Application shell\nResponsive theme and navigation" as Shell
     component "Project views\nShowroom, details and studio" as Projects
+    component "React feed \nFeedPage, ProjectPost, media, likes, comments" as Feed
     component "Profile / CV views" as Profile
     component "Account views" as Account
     component "Shared UI\nForms, dialogs, placeholders and feedback" as UI
@@ -16,17 +17,22 @@ package "Frontend design scope" {
   package "Interaction and state layer" {
     component "Interaction coordinator\nRoutes, forms, slideshow, galleries\nand request state" as Interaction
     rectangle "Transient UI state\nTabs, filters and unsent form edits" as State
+    component "Feed state \nCursor, fetched IDs, observer, aborts" as FeedState
   }
   package "API integration layer" {
     component "API client\nAccount, project, profile, file\nand access operations" as Client
   }
 }
 rectangle "External boundary - outside frontend design" #F0F0F0 {
-  component "Backend API\nTo be implemented" as Backend
+  component "Backend API\nAuth/project services exist;" as Backend
 }
 
 Shell --> Interaction : navigation intent
 Projects --> Interaction : project and editor intent
+Shell --> Feed : mount / account update / unmount
+Feed --> FeedState : initial and next-page intent
+FeedState --> Client : bounded public reads and authenticated writes
+Feed --> UI : consistent visual theme and status feedback
 Profile --> Interaction : profile and CV intent
 Account --> Interaction : account intent
 Projects --> UI : shared presentation
@@ -35,15 +41,6 @@ Account --> UI : shared presentation
 Interaction --> State : manage transient interaction state
 Interaction --> UI : present pending, success and failure states
 Interaction --> Client : request data and submit changes
-Client --> Backend : planned API requests and responses
+Client --> Backend : API requests and responses
 
-note bottom of Client
-  Isolates transport and response handling from screens.
-  No database queries or persistence fallback in the frontend.
-end note
-note bottom of Backend
-  Will supply authoritative account, access and data results.
-  Database and file service connections are shown
-  in the system context diagram, not designed here.
-end note
 @enduml

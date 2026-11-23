@@ -8,6 +8,7 @@ skinparam ranksep 60
 
 node "Web Browser" {
     [JavaScript UI\nHTML, CSS, and page state] as UI
+    [React project feed;\n incremental cards] as Feed
     [API Client\nfetch()] as Client
 }
 
@@ -20,7 +21,7 @@ node "Backend Server (Node.js + Express)" {
     }
 
     package "Business Layer" {
-        [Services & Domain Rules\nAccounts, tokens, projects, and CV] as Services
+        [Services & Domain Rules\nAccounts, tokens, projects, CV,\nand feed interactions] as Services
     }
 
     package "Persistence Layer" {
@@ -28,20 +29,32 @@ node "Backend Server (Node.js + Express)" {
     }
 }
 
-database "PostgreSQL\nAccounts, sessions, projects, and profiles" as DB
+database "PostgreSQL\nAccounts, sessions, projects, profiles,\nand posts/likes/comments" as DB
+folder "Server file storage\nProject media and builds" as Files
 
 UI --> Client : invokes API
+UI --> Feed : mount planned #/feed screen
+Feed --> Client : cursor reads and session-bound interactions
 Client --> Network : calls API
 UI --> Static : loads pages and assets over HTTP(S)
 Network --> Routes : api requests
 Routes --> Services : validate and handle operations
 Services --> Persistence : read and write records
 Persistence --> DB
+Services --> Files : resolve authorized existing media
 
 note right of Client
-  Planned sign-in uses a JWT access token
+  Sign-in uses a JWT access token
   in the Authorization header and a refresh
   token in an HttpOnly cookie.
+end note
+
+note right of Feed
+  Public landing page.
+  React owns only the feed container.
+  Public reads filter published projects;
+  likes/comments require an active session.
+  No direct browser-to-database connection.
 end note
 
 @enduml
