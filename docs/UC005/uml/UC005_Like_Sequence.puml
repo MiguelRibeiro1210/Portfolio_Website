@@ -1,0 +1,33 @@
+@startuml UC005_Like_Sequence
+!theme plain
+title UC005 — Like / unlike a published post
+actor Viewer
+participant "frontend/feed/LikeButton.jsx" as Button
+participant "frontend/feed/feedApi.js; shared session transport)" as Client
+participant "src/routes/feed.routes.js" as Routes
+participant "src/middleware/requireAuth.js" as Auth
+participant "src/services/feedService.js" as Service
+participant "src/db/database.js" as Data
+database PostgreSQL as DB
+
+Viewer -> Button : Select Like / Unlike
+alt Visitor has no account session
+  Button --> Viewer : Offer sign-in; do not mutate
+else Signed-in viewer
+  Button -> Button : Disable this control while pending
+  Button -> Client : Set desired like state
+  Client -> Routes : PUT / DELETE /api/feed/posts/:postId/like
+  Routes -> Auth : Verify bearer token and active session
+  Auth --> Routes : Authenticated account or 401
+  Routes -> Service : Set like using verified account ID
+  Service -> Data : Apply desired state to published post
+  Data -> DB : Check post/project publication; INSERT ON CONFLICT\nor DELETE own (post_id, user_id); read count
+  DB --> Data : Confirmed count and like state
+  Data --> Service : Result
+  Service --> Routes : Result
+  Routes --> Client : 200 { likeCount, viewerHasLiked }
+  Client --> Button : Confirmed state / failure
+  Button --> Viewer : Update count and pressed state
+  Button -> Button : Re-enable control
+end
+@enduml

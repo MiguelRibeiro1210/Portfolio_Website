@@ -1,0 +1,55 @@
+@startuml UC005_Feed_Scroll_Sequence
+!theme plain
+title UC005 — Public feed and incremental React cards
+actor "Visitor / signed-in user" as Viewer
+participant "public/js/app.js" as Shell
+participant "frontend/feed/mountFeed.jsx" as Mount
+participant "frontend/feed/FeedPage.jsx\n+ useFeed.js" as Feed
+participant "frontend/feed/feedApi.js" as Client
+participant "src/routes/feed.routes.js" as Routes
+participant "src/services/feedService.js" as Service
+participant "src/db/database.js" as Data
+database PostgreSQL as DB
+
+Viewer -> Shell : Enter website / #/feed
+Shell -> Mount : Mount one React feed root with shared transport
+Mount -> Feed : Render FeedPage
+Feed -> Client : Load first page (limit 10)
+Client -> Routes : GET /api/feed?limit=10 (public)
+Routes -> Service : Read published feed; optional viewer identity
+Service -> Data : Fetch ordered page and counts
+Data -> DB : Published posts ORDER BY created_at DESC, id DESC\nLIMIT 11; page-scoped counts
+DB --> Data : Page boundary and result rows
+Data --> Service : Post summaries and has-next information
+Service --> Routes : Public projection and opaque nextCursor
+Routes --> Client : 200 { posts, nextCursor }
+Client --> Feed : First batch
+Feed -> Feed : Create ProjectPost components for fetched IDs only
+Feed --> Viewer : Show cards; lazy media and collapsed comments
+
+loop Sentinel near viewport / Load more, while nextCursor exists
+  Viewer -> Feed : Scroll toward the bottom / activate Load more
+  Feed -> Feed : Guard one in-flight request; retain cursor
+  Feed -> Client : Request next batch
+  Client -> Routes : GET /api/feed?cursor=...&limit=10
+  Routes -> Service : Read next published page
+  Service -> Data : Keyset read older than cursor boundary
+  Data -> DB : Read next bounded page and counts
+  DB --> Data : Rows and next-page information
+  Data --> Service : Page data
+  Service --> Routes : Public projection and nextCursor
+  Routes --> Client : 200 page / error response
+  Client --> Feed : posts and nextCursor
+  Feed -> Feed : Deduplicate IDs, append cards, advance cursor
+  Feed --> Viewer : Additional cards; stop if cursor is null
+
+end
+Viewer -> Shell : Leave feed route
+Shell -> Mount : Unmount feed before replacing DOM
+Mount -> Feed : Abort reads; disconnect observer; ignore stale results
+note over Feed, DB
+  Scrolling creates React components, never database posts.
+  Comments load separately only when opened.
+  End of published projects is a finite end-of-feed state.
+end note
+@enduml

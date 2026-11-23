@@ -1,0 +1,46 @@
+@startuml UC005_Comment_Sequence
+!theme plain
+title UC005 — Read and submit comments
+actor Viewer
+participant "frontend/feed/CommentSection.jsx" as Comments
+participant "frontend/feed/feedApi.js; shared session transport)" as Client
+participant "src/routes/feed.routes.js" as Routes
+participant "src/middleware/requireAuth.js" as Auth
+participant "src/services/feedService.js" as Service
+participant "src/domain/feedRules.js" as Rules
+participant "src/db/database.js" as Data
+database PostgreSQL as DB
+
+Viewer -> Comments : Open comments
+Comments -> Client : Request first comment page
+Client -> Routes : GET /api/feed/posts/:postId/comments
+Routes -> Service : Read public comments
+Service -> Data : Published post; 20 oldest-first comments
+Data -> DB : Publication check and keyset query (fetch 21)
+DB --> Data : Rows and page boundary
+Data --> Service : Public comment authors/text
+Service --> Routes : Comments and nextCursor
+Routes --> Client : 200 { comments, nextCursor }
+Client --> Comments : Render comments; offer Load more if needed
+
+Viewer -> Comments : Submit comment
+alt Visitor
+  Comments --> Viewer : Offer sign-in; preserve input if present
+else Signed-in user
+  Comments -> Client : Submit text; disable submit while pending
+  Client -> Routes : POST /api/feed/posts/:postId/comments { text }
+  Routes -> Auth : Verify active bearer session
+  Auth --> Routes : Verified account or 401
+  Routes -> Service : Create comment using verified author
+  Service -> Rules : Trim and validate plain text (1-1000 characters)
+  Rules --> Service : Valid text or 400
+  Service -> Data : Save comment on published post
+  Data -> DB : Check publication; INSERT comment; read count
+  DB --> Data : Saved comment and count
+  Data --> Service : Result
+  Service --> Routes : Public saved comment and commentCount
+  Routes --> Client : 201 result / error response
+  Client --> Comments : Saved result / failure
+  Comments --> Viewer : Show saved comment; clear submitted input; update count
+end
+@enduml

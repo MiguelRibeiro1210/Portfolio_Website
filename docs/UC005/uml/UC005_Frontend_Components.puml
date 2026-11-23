@@ -1,0 +1,45 @@
+@startuml UC005_Frontend_Components
+!theme plain
+title UC005 — React feed components and integration
+top to bottom direction
+skinparam componentStyle rectangle
+
+package "Existing vanilla JavaScript application" {
+  component "public/js/app.js\nShell, routing, account state" as Shell
+  component "public/js/api.js\nShared session transport" as Session
+  component "Existing collection, studio,\nauthentication and profile screens" as Existing
+}
+package "React feed only frontend/feed/" {
+  component "mountFeed.jsx\nOne root; mount/update/unmount" as Mount
+  component "FeedPage.jsx\nStatus, sentinel, Load more" as Page
+  component "useFeed.js\nCursor, loaded IDs, cancellation" as State
+  component "ProjectPost.jsx\nAuthor + project summary" as Post
+  component "PostMedia.jsx\nLazy image / video" as Media
+  component "LikeButton.jsx\nConfirmed state + pending" as Likes
+  component "CommentSection.jsx\nLazy pages + draft input" as Comments
+  component "feedApi.js\nContract-specific requests" as Client
+}
+package "Backend contracts" {
+  component "Public feed, cover media\nand comment reads" as Public
+  component "Authenticated like/unlike\nand comment writes" as Writes
+}
+component "Vite feed build\nManifest + scoped JS/CSS\npublic/feed-assets/" as Build
+
+Shell --> Existing : preserve existing screen routing
+Shell --> Mount : #/feed; pass account and shared transport
+Shell --> Session : restore session independently
+Mount --> Page : createRoot / unmount
+Mount --> Build : load built entry and styles
+Page --> State : load first/next bounded page
+Page --> Post : render fetched IDs with stable keys
+Post --> Media
+Post --> Likes
+Post --> Comments
+State --> Client : page requests + abort signals
+Likes --> Client : desired like state
+Comments --> Client : comment pages / submission
+Client --> Session : use injected shared transport
+Client --> Public : public reads; optional viewer identity on feed
+Client --> Writes : active session required
+Media --> Public : published cover URL
+@enduml

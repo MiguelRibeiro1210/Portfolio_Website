@@ -1,0 +1,27 @@
+@startuml UC005_Post_Creation_Sequence
+!theme plain
+title UC005 — Automatic feed-post creation
+actor "Project owner" as Owner
+participant "public/js/app.js" as App
+participant "src/routes/project.routes.js" as Routes
+participant "src/services/projectService.js" as Service
+participant "src/db/database.js" as Data
+database PostgreSQL as DB
+
+Owner -> App : Save project through UC002
+App -> Routes : POST /api/projects with active session
+Routes -> Service : Validated creation request and authenticated owner
+note over Routes, Service
+  Reuse UC002 authentication, field validation,
+  and file storage before the database transaction.
+end note
+Service -> Data : createProject(project, ownerId)
+Data -> DB : BEGIN; insert project, media, optional notes/build
+Data -> DB : INSERT feed_posts(id, project_id, created_at)
+Data -> DB : COMMIT
+DB --> Data : Project and eligible post committed together
+Data --> Service : Saved project
+Service --> Routes : Saved project
+Routes --> App : 201 Created (existing UC002 response shape)
+App --> Owner : Confirm project saved
+@enduml
