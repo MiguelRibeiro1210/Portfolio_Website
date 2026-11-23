@@ -1,4 +1,4 @@
-import { repository, emptyWorkspace, registerAccount, signIn, restoreSession, signOut, createProject, loadOwnerProfile, saveOwnerProfile, loadPublicProfile, publicCvUrl } from './api.js';
+import { repository, emptyWorkspace, registerAccount, signIn, restoreSession, signOut, createProject, loadProject, updateProject, deleteProject, rememberProject, loadOwnerProfile, saveOwnerProfile, loadPublicProfile, publicCvUrl } from './api.js';
 import { showroom, projectPage, studio } from './project.js';
 import { aboutPage } from './cv.js';
 import { authPage } from './auth.js';
@@ -8,7 +8,13 @@ let state = emptyWorkspace();
 let account = null;
 let featuredIndex = 0;
 let savingProject = false, savingProfile = false, workspaceError = '', profileError = '';
-let aboutLoad;
+let aboutLoad, editorLoad;
+
+function rememberWorkspaceProject(project) {
+  const index = state.projects.findIndex(item => item.id === project.id);
+  if (index < 0) state.projects.push(project);
+  else state.projects[index] = project;
+}
 async function loadProfile() {
   profileError = '';
   try { state.profile = await loadOwnerProfile(); }
@@ -38,7 +44,7 @@ function header(page, profile = state.profile, ownProfile = true) {
   const accountAction = account
     ? '<button type="button" class="text-btn nav-account" data-action="signout">Sign out</button>'
     : auth ? '' : '<a class="nav-link nav-account" href="#/signin">Sign in</a>';
-  const editingProject=editor && route().section==='projects' && !route().id && account;
+  const editingProject=editor && route().section==='projects' && account && (!route().id || state.projects.some(project => project.id === route().id && project.etag));
   const project=state.projects.find(p=>p.id===route().id);
   return `<header class="site-header"><nav class="nav-left" aria-label="Main navigation"><a class="nav-link" href="#/">${home?'':icon('back',14)}Projects</a>${!auth && !editor ? '<a class="nav-link" href="#/about">About <span class="nav-optional">& CV</span></a>' : ''}</nav><a class="wordmark" href="#/" aria-label="folio home">folio</a><div class="nav-right">${editor ? `${link('Preview','#/','','external')}${editingProject?'<button type="submit" form="project-form" class="btn primary header-save">Save changes</button>':''}` : page==='project' ? `<span class="owner-label">Preview</span>${link('Edit project',project?`#/studio/${project.id}`:'#/studio','nav-edit')}` : page==='about' ? `${profile.cvId?link('Download CV',publicCvUrl(profile.cvId,true),'nav-cv','download'):''}${account && ownProfile ? link('Edit CV','#/studio?section=profile','nav-edit') : ''}` : auth ? '' : home ? `<span class="owner-label">Your collection</span>${link('Add project','#/studio','nav-workspace','plus')}` : '<span class="nav-tagline">A thoughtful experience, in every state.</span>'}${accountAction}</div></header>`;
 }
@@ -71,6 +77,24 @@ async function render() {
   }
   const r=route();
   const renderedHash = location.hash;
+  const isEditing = r.page === 'studio' && r.section === 'projects' && r.id && account;
+  let editorError = '';
+  if (isEditing) {
+    if (editorLoad?.id !== r.id) {
+      app.innerHTML = '<main class="initial-loading" id="main" tabindex="-1"><p role="status">Loading project…</p></main>';
+      editorLoad = { id: r.id, result: loadProject(r.id) };
+    }
+    try {
+      const project = await editorLoad.result;
+      if (renderedHash !== location.hash) return;
+      rememberWorkspaceProject(project);
+      rememberProject(project);
+    } catch (error) {
+      if (renderedHash !== location.hash) return;
+      editorError = error.message;
+      if (error.status === 404) state.projects = state.projects.filter(project => project.id !== r.id);
+    }
+  }
   let profile = state.profile;
   let missingProfile = false;
   const ownProfile = Boolean(account && (!r.id || r.id === state.profile.publicId));
@@ -91,7 +115,9 @@ async function render() {
   document.body.dataset.page=r.page;
   const oauthStatus = oauthMessages.get(r.oauth) ?? '';
   const content = r.page==='home'?showroom(state,filter,featuredIndex):r.page==='project'?projectPage(state,r.id,projectTab,mediaIndex):r.page==='about'?(missingProfile ? '<section class="section-pad"><h1>Profile not found.</h1></section>'
-    : aboutPage({ profile }, aboutTab, ownProfile)):r.page==='studio'?studio(state,r.id,r.section,account,oauthStatus,profileError):['signin','register','reset'].includes(r.page)?authPage(r.page,oauthStatus):r.page==='states'?statesPage():`<section class="not-found section-pad"><p class="eyebrow">404 / A LITTLE OFF THE MAP</p><h1>Let’s head back to the gallery.</h1>${link('Explore the projects','#/','primary','arrow')}</section>`;
+    : aboutPage({ profile }, aboutTab, ownProfile)):r.page==='studio'?(editorError
+    ? `<section class="section-pad"><h1>Could not open project.</h1><p role="alert">${e(editorError)}</p>${button('Retry loading project','reload-project')}</section>`
+    : studio(state,r.id,r.section,account,oauthStatus,profileError)):['signin','register','reset'].includes(r.page)?authPage(r.page,oauthStatus):r.page==='states'?statesPage():`<section class="not-found section-pad"><p class="eyebrow">404 / A LITTLE OFF THE MAP</p><h1>Let’s head back to the gallery.</h1>${link('Explore the projects','#/','primary','arrow')}</section>`;
   app.innerHTML = `${header(r.page, profile, ownProfile)}<main id="main" tabindex="-1">${workspaceError ? `<div class="section-pad" role="alert"><p>${e(workspaceError)}</p>${button('Retry loading projects','reload-projects')}</div>` : ''}${content}</main>${footer(profile, r.page !== 'about' || ownProfile)}`;
   document.title=`${({home:'The collection',project:'Project experience',about:'Behind the projects',studio:'Your workspace',signin:'Sign in',register:'Create your gallery',reset:'Reset password',states:'The experience'})[r.page]||'Page not found'} — folio`;
   dirty=false; pendingFiles=[]; removedFiles.clear();
@@ -115,10 +141,6 @@ function bindForms() {
   const projectForm = document.querySelector('#project-form');
   if(projectForm) {
     projectForm.onsubmit=saveProject;
-    if (route().id) {
-      projectForm.querySelectorAll('input,textarea,select,button').forEach(control => { if (!control.dataset.download) control.disabled = true; });
-      return;
-    }
     if (!account) {
       projectForm.querySelectorAll('input,textarea,select,button').forEach(control => { control.disabled = true; });
     }
@@ -127,15 +149,21 @@ function bindForms() {
       const input=document.querySelector(type==='media'?'#media-input':'#build-input');
       input.onchange=()=>{
         const rejected=[];
+        let acceptedMedia = 0;
+        const countBefore = pendingFiles.length;
         for(const file of input.files) {
           if(file.size>(type==='media'?20:100)*1024*1024) {rejected.push(`${file.name}: file is too large`); continue;}
           if(type==='media' && !['image/png','image/jpeg','image/webp','image/gif','video/mp4','video/webm'].includes(file.type)) {rejected.push(`${file.name}: unsupported media type`);continue;}
           if(type==='builds' && !/\.(zip|exe|apk|dmg|deb|appimage|msi|tar|gz)$/i.test(file.name)) {rejected.push(`${file.name}: unsupported release file`);continue;}
           if (type==='builds' && pendingFiles.some(item=>item.category==='builds')) { rejected.push('Select at most one build. Remove the current selection first.'); continue; }
-          if (type==='media' && pendingFiles.filter(item=>item.category==='media').length >= 10) { rejected.push('Select at most 10 gallery files.'); continue; }
-          pendingFiles.push({id:crypto.randomUUID(),file,category:type});
+          if (type==='media' && projectForm.querySelector('#pending-media').children.length + acceptedMedia >= 10) { rejected.push('Select at most 10 gallery files.'); continue; }
+          const item = { id: crypto.randomUUID(), file, category: type };
+          pendingFiles.push(item);
+          if (type === 'media') acceptedMedia++;
+
         }
-        dirty=true; input.value=''; renderPending(); if(rejected.length) notify(rejected.join('. '));
+        if (acceptedMedia || pendingFiles.length !== countBefore) dirty=true;
+        input.value=''; renderPending(); if(rejected.length) notify(rejected.join('. '));
       };
     }
   }
@@ -227,8 +255,10 @@ function safeUrl(value){try{return ['https:','http:'].includes(new URL(value).pr
 async function saveProject(event) {
   event.preventDefault();
   if (savingProject) return;
-  if (!account) { notify('Sign in before creating a project.'); return; }
-  if (route().id) { notify('Editing saved projects is not available yet.'); return; }
+  if (!account) { notify('Sign in before saving a project.'); return; }
+  const { id } = route();
+  const current = state.projects.find(project => project.id === id);
+  if (id && !current?.etag) { notify('Reload this project before saving.'); return; }
   const formElement = event.target;
   const buttons = [...document.querySelectorAll('button[type="submit"][form="project-form"], #project-form button[type="submit"]')];
   savingProject = true;
@@ -240,12 +270,29 @@ async function saveProject(event) {
     p.published = form.has('published');
     if (!p.title || !p.description || !p.stack) throw new Error('Fill in the title, description, and tech stack.');
     if (p.source && !safeUrl(p.source)) throw new Error('Use an HTTP or HTTPS repository URL.');
-    if (!pendingFiles.some(item=>item.category==='media')) throw new Error('Add at least one gallery image or video.');
-    const saved = await createProject(p, pendingFiles);
-    state.projects.push(saved);
+    const uploads = pendingFiles.filter(item => item.category === 'media');
+    const gallery = [...formElement.querySelectorAll('#pending-media [data-file-row]')];
+    if (!gallery.length) throw new Error('Add at least one gallery image or video.');
+    const uploadIndex = new Map(uploads.map((item, index) => [item.id, index]));
+    let saved;
+    if (current) {
+      p.mediaOrder = gallery.map(row => uploadIndex.has(row.dataset.fileRow)
+        ? { uploadIndex: uploadIndex.get(row.dataset.fileRow) }
+        : { fileId: row.dataset.fileRow });
+      const build = current.builds[0];
+      p.buildAction = pendingFiles.some(item => item.category === 'builds') ? 'replace'
+        : build && removedFiles.has(build.id) ? 'remove' : 'keep';
+      saved = await updateProject(current, p, pendingFiles);
+      editorLoad = { id: saved.id, result: Promise.resolve(saved) };
+    } else {
+      const ordered = gallery.map(row => uploads[uploadIndex.get(row.dataset.fileRow)]);
+      saved = await createProject(p, [...ordered, ...pendingFiles.filter(item => item.category === 'builds')]);
+    }
+    rememberWorkspaceProject(saved);
     dirty = false;
     notify('Project saved.');
-    location.hash = `/studio/${saved.id}`;
+    if (current) await render();
+    else location.hash = `/studio/${saved.id}`;
   } catch (error) {
     notify(error.message || 'Could not save your project.');
   } finally {
@@ -255,7 +302,29 @@ async function saveProject(event) {
   }
 }
 
-function renderPending(){for(const category of ['media','builds']){const list=document.querySelector(`#pending-${category}`);list.innerHTML=pendingFiles.filter(f=>f.category===category).map(item=>`<div class="file-row"><span>${icon('file',16)}${e(item.file.name)}</span><button type="button" class="icon-btn" data-remove-pending="${item.id}" aria-label="Remove ${e(item.file.name)}">${icon('close',16)}</button></div>`).join('');}}
+function syncGalleryControls() {
+  const rows = [...document.querySelectorAll('#pending-media [data-file-row]')];
+  rows.forEach((row, index) => {
+    row.querySelector('[data-direction="-1"]').disabled = index === 0;
+    row.querySelector('[data-direction="1"]').disabled = index === rows.length - 1;
+  });
+}
+
+function renderPending() {
+  const gallery = document.querySelector('#pending-media');
+  const visible = new Set([...gallery.children].map(row => row.dataset.fileRow));
+  for (const { id, file } of pendingFiles.filter(item => item.category === 'media' && !visible.has(item.id))) {
+    gallery.insertAdjacentHTML('beforeend', `<div class="file-row" data-file-row="${id}"><span>${icon('file',16)}${e(file.name)}</span><div>
+      <button type="button" class="icon-btn" data-reorder="${id}" data-direction="-1" aria-label="Move ${e(file.name)} earlier">↑</button>
+      <button type="button" class="icon-btn" data-reorder="${id}" data-direction="1" aria-label="Move ${e(file.name)} later">↓</button>
+      <button type="button" class="icon-btn" data-remove-pending="${id}" aria-label="Remove ${e(file.name)}">${icon('close',16)}</button>
+      </div></div>`);
+  }
+  syncGalleryControls();
+  document.querySelector('#pending-builds').innerHTML = pendingFiles.filter(item => item.category === 'builds')
+    .map(({ id, file }) => `<div class="file-row"><span>${icon('file',16)}${e(file.name)}</span><button type="button" class="icon-btn" data-remove-pending="${id}" aria-label="Remove ${e(file.name)}">${icon('close',16)}</button></div>`).join('');
+}
+
 function downloadBlob(blob,name){const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 async function download(id,name){const file=await repository.file(id);if(!file)throw new Error('This file is unavailable. Add it again in your workspace.');downloadBlob(file,name||file.name);}
 
@@ -336,9 +405,9 @@ document.addEventListener('click',async event=>{
     if(target.dataset.mediaIndex!==undefined){mediaIndex=Number(target.dataset.mediaIndex);const y=scrollY;await render();scrollTo(0,y);const art=document.querySelector('.project-stage .mockup');if(art)art.dataset.view=mediaIndex;}
     if(target.dataset.studioSection){if(dirty){confirmAction('Leave without saving?','Your unsaved edits will be discarded.','Leave page',()=>{dirty=false;location.hash=`/studio?section=${target.dataset.studioSection}`;});}else location.hash=`/studio?section=${target.dataset.studioSection}`;}
     if(target.dataset.download) await download(target.dataset.download,target.dataset.filename);
-    if(target.dataset.removePending){pendingFiles=pendingFiles.filter(f=>f.id!==target.dataset.removePending);renderPending();dirty=true;}
-    if(target.dataset.removeFile){removedFiles.add(target.dataset.removeFile);target.closest('[data-file-row]').remove();dirty=true;}
-    if(target.dataset.reorder){const row=target.closest('[data-file-row]');const sibling=Number(target.dataset.direction)<0?row.previousElementSibling:row.nextElementSibling;if(sibling){Number(target.dataset.direction)<0?sibling.before(row):sibling.after(row);dirty=true;const rows=Array.from(row.parentElement.children);rows.forEach((el,i)=>{el.querySelector('[data-direction="-1"]').disabled=i===0;el.querySelector('[data-direction="1"]').disabled=i===rows.length-1;});}}
+    if(target.dataset.removePending){pendingFiles=pendingFiles.filter(f=>f.id!==target.dataset.removePending);target.closest('[data-file-row]')?.remove();renderPending();dirty=true;}
+    if(target.dataset.removeFile){removedFiles.add(target.dataset.removeFile);target.closest('[data-file-row]').remove();syncGalleryControls();dirty=true;}
+    if(target.dataset.reorder){const row=target.closest('[data-file-row]');const sibling=Number(target.dataset.direction)<0?row.previousElementSibling:row.nextElementSibling;if(sibling){Number(target.dataset.direction)<0?sibling.before(row):sibling.after(row);dirty=true;syncGalleryControls();}}
     const action=target.dataset.action;
     if (action === 'signout') {
       if (savingProfile) return;
@@ -359,6 +428,23 @@ document.addEventListener('click',async event=>{
     if(action==='view-gallery')document.querySelector('.project-stage')?.scrollIntoView({behavior:'smooth',block:'center'});
     if(action==='reset-filter'){filter='all';await render();document.querySelector('#collection').scrollIntoView();}
     if(action==='toggle-password'){const input=document.querySelector('#password');const show=input.type==='password';input.type=show?'text':'password';target.textContent=show?'Hide':'Show';target.setAttribute('aria-pressed',String(show));}
+    if (action === 'delete-project') {
+      const current = state.projects.find(project => project.id === route().id);
+      if (!current?.etag) return;
+      confirmAction('Delete project?', `“${e(current.title)}” and its files will be permanently removed.`, 'Delete project', async () => {
+        if (savingProject) return;
+        savingProject = true;
+        try {
+          await deleteProject(current);
+          state.projects = state.projects.filter(project => project.id !== current.id);
+          editorLoad = undefined;
+          dirty = false;
+          notify('Project deleted.');
+          location.hash = '/studio';
+        } finally { savingProject = false; }
+      });
+    }
+    if (action === 'reload-project') { editorLoad = undefined; await render(); }
     if(action==='add-project')location.hash='/studio';
     if(action==='reload-profile'){await loadProfile();await render();}
     if(action==='reload-projects'){await loadWorkspace();await render();}
@@ -381,6 +467,7 @@ window.addEventListener('hashchange',async()=>{
   if(savingProject || savingProfile){history.replaceState(null,'',previousHash);return;}
   if(dirty){const nextHash=location.hash;history.replaceState(null,'',previousHash||'#/');confirmAction('Leave without saving?','Your unsaved edits will be discarded.','Leave page',()=>{dirty=false;location.hash=nextHash;});return;}
   aboutLoad = undefined;
+  editorLoad = undefined;
   previousHash=location.hash;projectTab='specs';mediaIndex=0;await render();window.scrollTo(0,0);document.querySelector('#main').focus({preventScroll:true});
 });
 window.addEventListener('beforeunload',event=>{if(dirty){event.preventDefault();event.returnValue='';}});

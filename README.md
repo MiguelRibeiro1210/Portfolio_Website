@@ -7,7 +7,7 @@
 
 A full-stack web platform for developers and students to manage private portfolio projects, downloadable builds, and structured CV entries with strict per-user ownership and session-based security.
 
-**Current implementation:** registration, password login, and application sessions use PostgreSQL. Google and GitHub sign-in are available when configured. Project creation and owner-scoped reads persist in PostgreSQL, with media and an optional build stored on disk. The studio and collection load saved projects after sign-in and reload. Saved projects are read-only for now. The Profile & CV editor saves to PostgreSQL and Supabase Storage, and the public page displays those changes. Default download preferences remain temporary previews. See [Remote database setup](docs/remote_database_setup.md) for the database configuration.
+**Current implementation:** registration, password login, and application sessions use PostgreSQL. Google and GitHub sign-in are available when configured. Project creation and owner-scoped reads persist in PostgreSQL, with media and an optional build stored on disk. The studio and collection load saved projects after sign-in and reload. Owners can edit or delete saved projects, with revision checks to protect changes from stale editor tabs. The Profile & CV editor saves to PostgreSQL and Supabase Storage, and the public page displays those changes. Default download preferences remain temporary previews. See [Remote database setup](docs/remote_database_setup.md) for the database configuration.
 
 ---
 
@@ -64,7 +64,7 @@ Server file storage (project media and builds, outside public/)
 ```
 ## Database Schema
 
-The initial migration is [`001_create_users.sql`](src/db/migrations/001_create_users.sql). It creates `portfolio.users` with a generated integer ID, name, unique normalized email, bcrypt password hash, and `TIMESTAMPTZ` creation time. [`002_create_auth_tables.sql`](src/db/migrations/002_create_auth_tables.sql) adds sign-in sessions and provider identities. Existing PostgreSQL accounts keep their IDs and password hashes. [`003_create_projects.sql`](src/db/migrations/003_create_projects.sql) adds `projects`, `project_notes`, and `project_files`, including owner foreign keys, ordered media, and a unique optional build per project.
+The initial migration is [`001_create_users.sql`](src/db/migrations/001_create_users.sql). It creates `portfolio.users` with a generated integer ID, name, unique normalized email, bcrypt password hash, and `TIMESTAMPTZ` creation time. [`002_create_auth_tables.sql`](src/db/migrations/002_create_auth_tables.sql) adds sign-in sessions and provider identities. Existing PostgreSQL accounts keep their IDs and password hashes. [`003_create_projects.sql`](src/db/migrations/003_create_projects.sql) adds `projects`, `project_notes`, and `project_files`, including owner foreign keys, ordered media, and a unique optional build per project. [`005_add_project_revision.sql`](src/db/migrations/005_add_project_revision.sql) adds revision numbers to existing projects.
 
 ---
 
@@ -97,10 +97,10 @@ Authentication, project creation, and project/file reads are implemented. Projec
 | `POST` | `/api/logout` | Refresh cookie when present | Revoke the session and clear the cookie (`204`) |
 | `GET` | `/api/projects` | Yes (owner) | List projects owned by the signed-in user (`WHERE owner_id = $1`) |
 | `POST` | `/api/projects` | Yes | Create a project via multipart upload, owned by `req.user.id` (`201`, `400`, `401`, `413`, `415`) |
-| `GET` | `/api/projects/:id` | Yes (owner only) | Get a project owned by current user (`200`, `401`, `404`) |
+| `GET` | `/api/projects/:id` | Yes (owner only) | Get an owned project and its revision `ETag` (`200`, `401`, `404`) |
 | `GET` | `/api/projects/files/:id` | Yes (owner only) | Download an owned media/build file (`200`, `401`, `404`) |
-| `PUT` | `/api/projects/:id` | Yes (owner only) | Planned: update an owned project |
-| `DELETE` | `/api/projects/:id` | Yes (owner only) | Planned: delete an owned project |
+| `PUT` | `/api/projects/:id` | Yes (owner only) | Save an owned project with multipart data and `If-Match` (`200`, `412`, `428`) |
+| `DELETE` | `/api/projects/:id` | Yes (owner only) | Delete an owned project with `If-Match` (`204`, `412`, `428`) |
 | `GET` | `/api/profile/me` | Bearer token | Load the owner's profile and attachment metadata |
 | `PUT` | `/api/profile/me` | Bearer token | Save fields and optionally replace or remove the PDF in one multipart request |
 | `GET` | `/api/profile/me/cv` | Bearer token | Load the owner's PDF |
@@ -114,6 +114,8 @@ Authentication, project creation, and project/file reads are implemented. Projec
 Sign in, open **Add project**, enter the title, description, tech stack, and showcase type, and select 1–10 gallery files. Notes and one build are optional. **Show in the collection** is selected initially; clear it to save a draft visible only in your studio. Select **Save changes** to persist the project. See the [UC002 contract and workflow](docs/UC002/createProject/UC002_Create_Project.md).
 
 `POST /api/projects` accepts `multipart/form-data` with one JSON `project` text part, repeated `media` file parts, and at most one `build` file part. Include `Authorization: Bearer <accessToken>`. A successful response contains `{ "project": { ... } }`, with a server-generated ID, `ownerId`, ordered media metadata, and nullable `notes` and `build` objects. The client refreshes an expired access token using the existing session cookie.
+
+To edit a project, open it from the studio, make changes, and click **Save changes**. The editor loads and sends back the revision automatically. To remove a project, click **Delete project** and confirm. Existing deployments need `npm run db:migrate` before starting this version. See the [UC003 plan](docs/UC003/UC003_Edit_Project.md) for update fields and sequences.
 
 Text limits are 200 characters for title, 5,000 for description, 1,000 for tech stack, 10,000 each for idea/release notes, 2,000 for compatibility, and 2,048 for the optional HTTP(S) repository URL. Gallery files allow PNG/JPEG/WebP/GIF/MP4/WebM up to 20 MiB each. The optional build allows ZIP/EXE/APK/DMG/DEB/AppImage/MSI/TAR/GZ up to 100 MiB. Combined uploaded file bytes are limited to 300 MiB, including chunked uploads. The server checks file signatures, fields, and ownership before accepting a project.
 

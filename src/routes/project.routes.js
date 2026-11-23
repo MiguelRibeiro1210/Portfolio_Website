@@ -7,8 +7,19 @@ import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { isUUID, projectError, projectLimits } from '../domain/projectRules.js';
-import { createProject } from '../services/projectService.js';
+import { createProject, updateProject, deleteProject } from '../services/projectService.js';
 import { createFileStorage } from '../services/fileStorageService.js';
+
+function expectedRevision(req) {
+  const header = req.get('If-Match');
+  if (!header) throw projectError('Load the project before saving or deleting it.', 428);
+  const match = /^"([1-9]\d*)"$/.exec(header);
+  const revision = Number(match?.[1]);
+  if (!Number.isSafeInteger(revision) || revision > 2147483647) throw projectError('Invalid project revision.');
+  return revision;
+}
+
+const projectTag = revision => `"${revision}"`;
 
 export function createProjectRouter(getDatabase, { jwtSecret }, storage = createFileStorage()) {
   const router = express.Router();
@@ -34,9 +45,20 @@ export function createProjectRouter(getDatabase, { jwtSecret }, storage = create
     limits: { fileSize: projectLimits.buildSize, files: 11, fields: 1, fieldSize: 64 * 1024, parts: 12 },
   }).fields([{ name: 'media', maxCount: projectLimits.mediaCount }, { name: 'build', maxCount: 1 }]);
 
-  router.post('/', async (req, res, next) => {
+  async function save(req, res, next) {
     let stage;
     try {
+      let current;
+      let database;
+      if (req.params.id !== undefined) {
+        if (!isUUID(req.params.id)) throw projectError('Project not found.', 404);
+        database = await getDatabase();
+        current = await database.findProject(req.user.id, req.params.id);
+        if (!current) throw projectError('Project not found.', 404);
+        if (current.revision !== expectedRevision(req)) {
+          throw projectError('Project changed. Reload it before trying again.', 412);
+        }
+      }
       if (!req.is('multipart/form-data')) throw projectError('Submit project details and files as multipart/form-data.');
       if (Number(req.get('Content-Length')) > projectLimits.totalSize + 128 * 1024) throw projectError('Request exceeds the 300 MiB upload limit.', 413);
       stage = await storage.stage();
@@ -46,6 +68,10 @@ export function createProjectRouter(getDatabase, { jwtSecret }, storage = create
       let input;
       try { input = JSON.parse(req.body.project); } catch { throw projectError('Invalid project JSON.'); }
       const files = [...(req.files?.media ?? []), ...(req.files?.build ?? [])];
+      if (current) {
+        const result = await updateProject(input, files, current, database, storage);
+        return res.set('ETag', projectTag(result.revision)).json({ project: result.project });
+      }
       const project = await createProject(input, files, req.user.id, await getDatabase(), storage);
       res.status(201).json({ project });
     } catch (error) { next(error); }
@@ -55,7 +81,10 @@ export function createProjectRouter(getDatabase, { jwtSecret }, storage = create
         catch { console.error('Unable to clean up a project upload staging directory.'); }
       }
     }
-  });
+  }
+  router.post('/', save);
+  router.put('/:id', save);
+
   router.get('/', async (req, res) => {
     res.json({ projects: await (await getDatabase()).listProjects(req.user.id) });
   });
@@ -77,7 +106,14 @@ export function createProjectRouter(getDatabase, { jwtSecret }, storage = create
     if (!isUUID(req.params.id)) return res.status(404).json({ message: 'Project not found.' });
     const project = await (await getDatabase()).findProject(req.user.id, req.params.id);
     if (!project) return res.status(404).json({ message: 'Project not found.' });
-    res.json({ project });
+    const { revision, ...fields } = project;
+    res.set('ETag', projectTag(revision)).json({ project: fields });
+  });
+  router.delete('/:id', async (req, res) => {
+    if (!isUUID(req.params.id)) throw projectError('Project not found.', 404);
+    const database = await getDatabase();
+    await deleteProject(req.user.id, req.params.id, expectedRevision(req), database, storage);
+    res.status(204).end();
   });
   router.use((error, req, res, next) => {
     if (res.headersSent) return next(error);

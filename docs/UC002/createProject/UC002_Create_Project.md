@@ -6,7 +6,7 @@
 
 As a signed-in user, I want to add a project from my portfolio page, fill in its details and optionally attach notes and a downloadable build, so my work is saved and displayed in my portfolio collection.
 
-This milestone covers project creation, persistence in PostgreSQL, storage of selected files, and displaying the saved project on the owner's page. It follows the existing frontend workflow. Creation and authenticated owner reads are implemented; project editing/deletion and visitor access remain separate work. Saved projects are read-only in the studio.
+This milestone covers project creation, persistence in PostgreSQL, storage of selected files, and displaying the saved project on the owner's page. It follows the existing frontend workflow. Creation and authenticated owner reads are implemented. [UC003](../../UC003/UC003_Edit_Project.md) extends the saved-project studio with editing and deletion. Visitor access is separate work.
 
 ### 1.2. Acceptance criteria
 
