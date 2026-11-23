@@ -7,7 +7,7 @@
 
 A full-stack web platform for developers and students to manage private portfolio projects, downloadable builds, and structured CV entries with strict per-user ownership and session-based security.
 
-**Current implementation:** registration, password login, and application sessions use PostgreSQL. Google and GitHub sign-in are available when configured. Project creation and owner-scoped reads persist in PostgreSQL, with media and an optional build stored on disk. The studio and collection load saved projects after sign-in and reload. Saved projects are read-only for now; profile/CV editing and default preferences remain temporary previews. See [Remote database setup](docs/remote_database_setup.md) for the database configuration.
+**Current implementation:** registration, password login, and application sessions use PostgreSQL. Google and GitHub sign-in are available when configured. Project creation and owner-scoped reads persist in PostgreSQL, with media and an optional build stored on disk. The studio and collection load saved projects after sign-in and reload. Saved projects are read-only for now. The Profile & CV editor saves to PostgreSQL and Supabase Storage, and the public page displays those changes. Default download preferences remain temporary previews. See [Remote database setup](docs/remote_database_setup.md) for the database configuration.
 
 ---
 
@@ -101,10 +101,11 @@ Authentication, project creation, and project/file reads are implemented. Projec
 | `GET` | `/api/projects/files/:id` | Yes (owner only) | Download an owned media/build file (`200`, `401`, `404`) |
 | `PUT` | `/api/projects/:id` | Yes (owner only) | Planned: update an owned project |
 | `DELETE` | `/api/projects/:id` | Yes (owner only) | Planned: delete an owned project |
-| `GET` | `/api/cv` | Yes (owner) | List CV entries owned by the signed-in user |
-| `POST` | `/api/cv` | Yes | Create a CV entry owned by `req.user.id` |
-| `PUT` | `/api/cv/:id` | Yes (owner only) | Update a CV entry owned by current user |
-| `DELETE` | `/api/cv/:id` | Yes (owner only) | Delete a CV entry owned by current user |
+| `GET` | `/api/profile/me` | Bearer token | Load the owner's profile and attachment metadata |
+| `PUT` | `/api/profile/me` | Bearer token | Save fields and optionally replace or remove the PDF in one multipart request |
+| `GET` | `/api/profile/me/cv` | Bearer token | Load the owner's PDF |
+| `GET` | `/api/profiles/:publicId` | Public | View the saved profile |
+| `GET` | `/api/profiles/:publicId/cv` | Public | Preview the PDF or download it with `?download=1` |
 
 ---
 
@@ -183,3 +184,9 @@ GITHUB_CLIENT_SECRET=
 Restart the app and use **Continue with Google** or **Continue with GitHub** on the sign-in page. New accounts require a verified provider email. If that email is already registered, sign in to the existing account, open **Access & security** in the studio, and connect the provider there. On production, set `OAUTH_ORIGIN` to the HTTPS origin and register its callback URLs with both providers.
 
 Run the integration test with `node --test tests/oauth.test.js`. It uses simulated provider responses and exercises the real Express and PostgreSQL flow.
+
+## CV Builder Setup
+
+Apply PostgreSQL migration [004_create_profiles.sql](src/db/migrations/004_create_profiles.sql) with `npm run db:migrate`. To enable PDF uploads, create a private `cv-files` bucket in Supabase Storage, restrict it to `application/pdf`, and set its upload limit to 10 MiB. Set `SUPABASE_URL` and `SUPABASE_STORAGE_KEY` in the server's `.env`. Use a server-side Supabase secret key or legacy service role key for storage access.
+
+Sign in and open **Studio → Profile & CV**. **Save profile** saves the fields and the optional file in one request. **View public profile** opens the shareable visitor page. Visitors can see saved fields and preview or download the current CV without signing in. See the [UC004 plan](docs/UC004/UC004_CV_Builder.md).

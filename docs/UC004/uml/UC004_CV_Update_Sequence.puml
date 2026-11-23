@@ -1,0 +1,41 @@
+@startuml UC004_CV_Update_Sequence
+!theme plain
+title UC004 — Update profile information and CV PDF
+
+actor "Owner" as Owner
+participant "src/server.js" as Server
+participant "src/routes/cv.routes.js" as Routes
+participant "src/middleware/requireAuth.js" as Guard
+participant "src/services/cvService.js" as Service
+participant "src/domain/cvRules.js" as Rules
+participant "src/services/cvStorage.js" as Storage
+participant "src/db/database.js" as Data
+database PostgreSQL as DB
+
+note over Owner
+  Fill in the profile fields, optionally select a PDF,
+  then click Save profile once.
+end note
+
+Owner -> Server : PUT /api/profile/me (fields and optional PDF)
+Server -> Routes : Dispatch profile save
+Routes -> Guard : Verify owner session
+Guard --> Routes : Set req.user
+Routes -> Service : Save profile and attachment for req.user.id
+Service -> Rules : Validate fields and optional PDF
+opt Owner selected a new or replacement PDF
+  Service -> Storage : Stage PDF under a new object key
+  Storage --> Service : Object key
+end
+Service -> Data : Save fields and apply the attachment change
+Data -> DB : Commit profile and attachment reference in one transaction
+DB --> Data : Commit succeeded
+Data --> Service : Saved profile and attachment metadata
+Service --> Routes : Saved profile, public ID, and attachment metadata
+Routes --> Owner : 200 OK
+
+note over Owner, Routes
+  The public view shows the saved fields and current PDF
+  after the transaction commits.
+end note
+@enduml

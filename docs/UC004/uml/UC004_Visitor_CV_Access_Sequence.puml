@@ -1,0 +1,38 @@
+@startuml UC004_Visitor_CV_Access_Sequence
+!theme plain
+title UC004 — View the profile and preview or download the PDF
+
+actor "Visitor" as Visitor
+participant "src/server.js" as Server
+participant "src/routes/cv.routes.js" as Routes
+participant "src/services/cvService.js" as Service
+participant "src/services/cvStorage.js" as Storage
+participant "src/db/database.js" as Data
+database PostgreSQL as DB
+
+Visitor -> Server : GET /api/profiles/:publicId
+Server -> Routes : Dispatch public request
+Routes -> Service : Load saved profile
+Service -> Data : Find profile by public ID
+Data -> DB : Read profile and CV availability
+Data --> Service : Saved profile
+Service --> Routes : Public fields
+Routes --> Visitor : 200 OK with profile
+
+note over Visitor
+  public/js/cv.js displays the saved About, Experience,
+  Education, Skills, and Contact tabs.
+  Switching tabs uses the profile already loaded.
+end note
+
+Visitor -> Server : GET /api/profiles/:publicId/cv (optional download=1)
+Server -> Routes : Dispatch public PDF request
+Routes -> Service : Get PDF for profile
+Service -> Data : Resolve current attachment for profile
+Data -> DB : Read attachment metadata
+Data --> Service : Object key and filename
+Service -> Storage : Open PDF
+Storage --> Service : PDF stream
+Service --> Routes : Stream and filename
+Routes --> Visitor : 200 OK with inline or downloadable PDF
+@enduml

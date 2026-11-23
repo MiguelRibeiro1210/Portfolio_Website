@@ -1,0 +1,29 @@
+@startuml UC004_Profile_Save_Sequence
+!theme plain
+title UC004 — Open the CV builder
+
+actor "Owner" as Owner
+participant "src/server.js" as Server
+participant "src/routes/cv.routes.js" as Routes
+participant "src/middleware/requireAuth.js" as Guard
+participant "src/db/database.js" as Data
+participant "src/services/cvService.js" as Service
+participant "src/domain/cvRules.js" as Rules
+database PostgreSQL as DB
+
+Owner -> Server : GET /api/profile/me
+Server -> Routes : Dispatch through the /api router
+Routes -> Guard : Verify owner session
+Guard --> Routes : Set req.user
+Routes -> Data : findOwnerProfile(req.user.id)
+Data -> DB : Read saved profile and optional attachment metadata
+DB --> Data : Profile row or no row
+Data --> Routes : Profile or undefined
+Routes -> Service : profileResponse(profile)
+opt Profile exists
+  Service -> Rules : profileFields(fields)
+  Rules --> Service : Validated profile fields
+end
+Service --> Routes : Profile response or null
+Routes --> Owner : 200 OK with profile fields and PDF status
+@enduml
