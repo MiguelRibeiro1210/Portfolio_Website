@@ -94,9 +94,36 @@ test('create a project, filter the collection, and reload saved details',async (
   await expect(page.locator('.media-view img')).toBeVisible();
   await navigate(page,`/studio/${id}`);
   await expect(page.getByLabel('Project title')).toHaveValue('A real project');
-  await expect(page.getByLabel('Project title')).toBeDisabled();
-  await expect(page.getByText('Saved project · read-only')).toBeVisible();
+  await expect(page.getByLabel('Project title')).toBeEnabled();
 });
+test('edit a saved project, keep and reorder its media, then confirm deletion', async ({ page }) => {
+  const id = await saveProject(page, { title: 'Original project' });
+  await expect(page.getByLabel('Project title')).toHaveValue('Original project');
+  const gallery = page.locator('#pending-media');
+  const existing = gallery.locator('[data-file-row]').first();
+  const firstId = await existing.getAttribute('data-file-row');
+  const fileName = (await existing.locator('span').first().innerText()).trim();
+  await page.getByLabel('Project title').fill('Updated project');
+  await page.locator('#media-input').setInputFiles({ name: 'added.png', mimeType: 'image/png', buffer: image });
+  await page.getByRole('button', { name: 'Move added.png earlier' }).click();
+  const update = page.waitForResponse(response => response.request().method() === 'PUT' && response.url().endsWith(`/api/projects/${id}`));
+  await page.getByRole('button', { name: 'Save changes' }).last().click();
+  expect((await update).status()).toBe(200);
+  await page.reload();
+  await expect(page.getByLabel('Project title')).toHaveValue('Updated project');
+  await expect(gallery.locator('[data-file-row]').first()).toContainText('added.png');
+  await expect(gallery.locator('[data-file-row]').last()).toContainText(fileName);
+  await expect(gallery.locator('[data-file-row]').last()).toHaveAttribute('data-file-row', firstId);
+
+  await page.getByRole('button', { name: 'Delete project', exact: true }).click();
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(page.getByLabel('Project title')).toHaveValue('Updated project');
+  await page.getByRole('button', { name: 'Delete project', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Delete project', exact: true }).click();
+  await expect(page).toHaveURL(/#\/studio$/);
+  await expect(page.locator('.draft-chip')).toHaveCount(0);
+});
+
 test('featured project controls cycle through saved projects',async ({page})=>{
   await saveProject(page,{title:'First project'});
   await saveProject(page,{title:'Second project',type:'private'});

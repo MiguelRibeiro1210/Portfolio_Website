@@ -114,15 +114,59 @@ function projectView(project) {
     source: project.notes?.source || '', releaseNotes: project.notes?.releaseNotes || '',
     builds: project.build ? [project.build] : [], permission: project.build?.permission || 'request' };
 }
-export async function createProject(project, files) {
+function projectFormData(project, files) {
   const body = new FormData();
-  const fields = ['title', 'type', 'description', 'stack', 'story', 'compatibility', 'source', 'releaseNotes', 'permission', 'published'];
-  body.append('project', JSON.stringify(Object.fromEntries(fields.map(key => [key, project[key]]))));
+  body.append('project', JSON.stringify(project));
   for (const item of files) body.append(item.category === 'media' ? 'media' : 'build', item.file);
-  const result = await projectRequest('/api/projects', { method: 'POST', body });
+  return body;
+}
+
+export function rememberProject(project) {
+  const index = workspace.projects.findIndex(item => item.id === project.id);
+  if (index < 0) workspace.projects.push(project);
+  else workspace.projects[index] = project;
+}
+
+export async function createProject(project, files) {
+  const result = await projectRequest('/api/projects', { method: 'POST', body: projectFormData(project, files) });
   const saved = projectView(result.project);
-  workspace.projects.push(saved);
+  rememberProject(saved);
   return saved;
+}
+
+async function projectRevisionRequest(id, options) {
+  const response = await authorizedFetch(`/api/projects/${encodeURIComponent(id)}`, options);
+  const result = await response.json().catch(() => null);
+  const etag = response.headers.get('ETag');
+  if (!response.ok || !result?.project || !etag) {
+    const error = new Error(result?.message || 'Could not load or save this project.');
+    error.status = response.status;
+    throw error;
+  }
+  return { ...projectView(result.project), etag };
+}
+
+export function loadProject(id) {
+  return projectRevisionRequest(id);
+}
+
+export async function updateProject(current, project, files) {
+  const saved = await projectRevisionRequest(current.id, {
+    method: 'PUT', headers: { 'If-Match': current.etag }, body: projectFormData(project, files),
+  });
+  rememberProject(saved);
+  return saved;
+}
+
+export async function deleteProject(current) {
+  const response = await authorizedFetch(`/api/projects/${encodeURIComponent(current.id)}`, {
+    method: 'DELETE', headers: { 'If-Match': current.etag },
+  });
+  if (!response.ok) {
+    const result = await response.json().catch(() => null);
+    throw new Error(result?.message || 'Could not delete this project.');
+  }
+  workspace.projects = workspace.projects.filter(project => project.id !== current.id);
 }
 
 function withSessionLock(operation) {

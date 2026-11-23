@@ -28,7 +28,7 @@ test('PostgreSQL registration validates, handles races, and persists across rest
     body: typeof body === 'string' ? body : JSON.stringify(body),
   });
   try {
-    assert.deepEqual(applied, ['001_create_users.sql', '002_create_auth_tables.sql', '003_create_projects.sql', '004_create_profiles.sql']);
+    assert.deepEqual(applied, ['001_create_users.sql', '002_create_auth_tables.sql', '003_create_projects.sql', '004_create_profiles.sql', '005_add_project_revision.sql']);
     assert.deepEqual(await applyMigrations(inspection), []);
     const legacy = await inspection.query('SELECT id FROM portfolio.users WHERE email = $1', ['legacy@example.com']);
     assert.equal(legacy.rows[0].id, legacyId);

@@ -1,0 +1,27 @@
+@startuml UC003_Open_Project_Sequence
+!theme plain
+title UC003 — Open a saved project in the editor
+
+actor "Portfolio owner" as Owner
+participant "public/js/app.js" as App
+participant "public/js/api.js" as Client
+participant "src/server.js" as Server
+participant "src/routes/project.routes.js" as API
+participant "src/middleware/requireAuth.js" as Auth
+participant "src/db/database.js" as Data
+database PostgreSQL as DB
+
+Owner -> App : Edit project
+App -> Client : Load saved project
+Client -> Server : GET /api/projects/:id
+Server -> API : Dispatch through the projects router
+API -> Auth : Verify active session
+Auth --> API : Set req.user
+API -> Data : findProject(req.user.id, id)
+Data -> DB : Read owned project, revision, and associations
+DB --> Data : Saved project
+Data --> API : Project and revision
+API --> Client : 200 OK with project and ETag
+Client --> App : Project and revision
+App --> Owner : Prefill the UC002 studio form
+@enduml

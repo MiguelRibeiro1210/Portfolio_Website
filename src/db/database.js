@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
+import { projectError } from '../domain/projectRules.js';
 import { describeDatabaseError } from './errors.js';
 
-const projectSelect = `SELECT p.id, p.owner_id AS "ownerId", p.title, p.type,
+const projectSelect = (withRevision = false) => `SELECT ${withRevision ? "p.revision, " : ""}p.id, p.owner_id AS "ownerId", p.title, p.type,
   p.description, p.stack, p.published, p.created_at AS "createdAt",
   (SELECT json_build_object('story', n.story, 'compatibility', n.compatibility,
     'source', n.source, 'releaseNotes', n.release_notes)
@@ -21,6 +22,35 @@ const profileSelect = `SELECT p.public_id AS "publicId", p.fields,
   ) END AS attachment
   FROM portfolio.profiles p LEFT JOIN portfolio.cv_attachments a USING (owner_id)`;
 
+async function writeProjectAssociations(client, project) {
+  if (project.notes) {
+    const { story, compatibility, source, releaseNotes } = project.notes;
+    await client.query(`INSERT INTO portfolio.project_notes
+      (project_id, story, compatibility, source, release_notes) VALUES ($1,$2,$3,$4,$5)`,
+    [project.id, story, compatibility, source, releaseNotes]);
+  }
+  const files = [...project.media, ...(project.build ? [project.build] : [])];
+  for (const [position, file] of files.entries()) {
+    const kind = file === project.build ? 'build' : 'media';
+    await client.query(`INSERT INTO portfolio.project_files
+      (id, project_id, kind, name, type, size, position, permission) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+    [file.id, project.id, kind, file.name, file.type, file.size, position, file.permission ?? null]);
+  }
+}
+
+async function lockProject(client, ownerId, projectId, revision) {
+  const { rows: [project] } = await client.query(
+    'SELECT revision FROM portfolio.projects WHERE owner_id = $1 AND id = $2 FOR UPDATE', [ownerId, projectId],
+  );
+  if (!project) throw projectError('Project not found.', 404);
+  if (project.revision !== revision) throw projectError('Project changed. Reload it before trying again.', 412);
+}
+
+async function projectFileIds(client, projectId) {
+  const { rows } = await client.query('SELECT id FROM portfolio.project_files WHERE project_id = $1', [projectId]);
+  return rows.map(row => row.id);
+}
+
 export async function openDatabase(config) {
   const pool = new Pool(config);
   pool.on('error', () => console.error('An idle PostgreSQL connection failed.'));
@@ -28,7 +58,7 @@ export async function openDatabase(config) {
     await pool.query('SELECT id, name, email, password_hash, created_at FROM portfolio.users LIMIT 0');
     await pool.query('SELECT id, user_id, refresh_token_hash, created_at, last_refreshed_at, expires_at, revoked_at FROM portfolio.sign_in_sessions LIMIT 0');
     await pool.query('SELECT provider, provider_user_id, user_id, linked_at FROM portfolio.provider_identities LIMIT 0');
-    await pool.query('SELECT id, owner_id FROM portfolio.projects LIMIT 0');
+    await pool.query('SELECT id, owner_id, revision FROM portfolio.projects LIMIT 0');
     await pool.query('SELECT project_id FROM portfolio.project_notes LIMIT 0');
     await pool.query('SELECT id, project_id FROM portfolio.project_files LIMIT 0');
     await pool.query(`${profileSelect} LIMIT 0`);
@@ -40,6 +70,24 @@ export async function openDatabase(config) {
   async function first(sql, parameters) {
     const { rows } = await pool.query(sql, parameters);
     return rows[0];
+  }
+
+  async function projectTransaction(operation) {
+    const client = await pool.connect();
+    let committing = false;
+    try {
+      await client.query('BEGIN');
+      const result = await operation(client);
+      committing = true;
+      await client.query('COMMIT');
+      return result;
+    } catch (error) {
+      if (committing) error.commitUncertain = true;
+      await client.query('ROLLBACK').catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   return {
@@ -90,41 +138,48 @@ export async function openDatabase(config) {
       }
     },
     close: () => pool.end(),
-    async createProject(project) {
-      const client = await pool.connect();
-      try {
-        await client.query('BEGIN');
+    createProject(project) {
+      return projectTransaction(async client => {
         await client.query(`INSERT INTO portfolio.projects
           (id, owner_id, title, type, description, stack, published) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
         [project.id, project.ownerId, project.title, project.type, project.description, project.stack, project.published]);
-        if (project.notes) {
-          const n = project.notes;
-          await client.query(`INSERT INTO portfolio.project_notes
-            (project_id, story, compatibility, source, release_notes) VALUES ($1,$2,$3,$4,$5)`,
-          [project.id, n.story, n.compatibility, n.source, n.releaseNotes]);
-        }
-        for (const [position, file] of [...project.media, ...(project.build ? [project.build] : [])].entries()) {
-          const kind = file === project.build ? 'build' : 'media';
-          await client.query(`INSERT INTO portfolio.project_files
-            (id, project_id, kind, name, type, size, position, permission) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-          [file.id, project.id, kind, file.name, file.type, file.size, position, file.permission ?? null]);
-        }
-        const { rows: [saved] } = await client.query(`${projectSelect} WHERE p.id = $1 AND p.owner_id = $2`, [project.id, project.ownerId]);
-        await client.query('COMMIT');
+        await writeProjectAssociations(client, project);
+        const { rows: [saved] } = await client.query(`${projectSelect()} WHERE p.id = $1 AND p.owner_id = $2`, [project.id, project.ownerId]);
         return saved;
-      } catch (error) {
-        await client.query('ROLLBACK');
-        throw error;
-      } finally {
-        client.release();
-      }
+      });
+    },
+    updateProject(project, revision) {
+      return projectTransaction(async client => {
+        await lockProject(client, project.ownerId, project.id, revision);
+        const previous = await projectFileIds(client, project.id);
+        await client.query(`UPDATE portfolio.projects
+          SET title = $3, type = $4, description = $5, stack = $6, published = $7, revision = revision + 1
+          WHERE owner_id = $1 AND id = $2`,
+        [project.ownerId, project.id, project.title, project.type, project.description, project.stack, project.published]);
+        // Replace associations inside the transaction to avoid transient position conflicts.
+        await client.query('DELETE FROM portfolio.project_notes WHERE project_id = $1', [project.id]);
+        await client.query('DELETE FROM portfolio.project_files WHERE project_id = $1', [project.id]);
+        await writeProjectAssociations(client, project);
+        const kept = new Set([...project.media, project.build].filter(Boolean).map(file => file.id));
+        const { rows: [saved] } = await client.query(`${projectSelect()} WHERE p.id = $1 AND p.owner_id = $2`,
+          [project.id, project.ownerId]);
+        return { project: saved, revision: revision + 1, retired: previous.filter(id => !kept.has(id)) };
+      });
+    },
+    deleteProject(ownerId, id, revision) {
+      return projectTransaction(async client => {
+        await lockProject(client, ownerId, id, revision);
+        const retired = await projectFileIds(client, id);
+        await client.query('DELETE FROM portfolio.projects WHERE owner_id = $1 AND id = $2', [ownerId, id]);
+        return retired;
+      });
     },
     async listProjects(ownerId) {
-      const { rows } = await pool.query(`${projectSelect} WHERE p.owner_id = $1 ORDER BY p.created_at, p.id`, [ownerId]);
+      const { rows } = await pool.query(`${projectSelect()} WHERE p.owner_id = $1 ORDER BY p.created_at, p.id`, [ownerId]);
       return rows;
     },
     findProject(ownerId, id) {
-      return first(`${projectSelect} WHERE p.owner_id = $1 AND p.id = $2`, [ownerId, id]);
+      return first(`${projectSelect(true)} WHERE p.owner_id = $1 AND p.id = $2`, [ownerId, id]);
     },
     findProjectFile(ownerId, id) {
       return first(`SELECT f.id, f.name, f.type, f.size, f.kind, f.permission

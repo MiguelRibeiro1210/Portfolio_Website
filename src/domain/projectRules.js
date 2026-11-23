@@ -5,7 +5,7 @@ export function projectError(message, status = 400) {
   return Object.assign(new Error(message), { status });
 }
 
-export function validateProject(input, files) {
+export function validateProject(input, files, selection) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw projectError('Project details must be an object.');
   const allowed = ['title', 'type', 'description', 'stack', 'published', 'story', 'compatibility', 'source', 'releaseNotes', 'permission'];
   if (Object.keys(input).some(key => !allowed.includes(key))) throw projectError('Unexpected project field. Ownership is assigned by the server.');
@@ -33,9 +33,11 @@ export function validateProject(input, files) {
   project.notes = Object.values(notes).some(Boolean) ? notes : null;
   const media = files.filter(file => file.fieldname === 'media');
   const builds = files.filter(file => file.fieldname === 'build');
-  if (!media.length || media.length > projectLimits.mediaCount) throw projectError('Select 1–10 gallery images or videos.');
+  const mediaCount = selection?.mediaCount ?? media.length;
+  const hasBuild = selection?.hasBuild ?? Boolean(builds.length);
+  if (!mediaCount || mediaCount > projectLimits.mediaCount) throw projectError('Select 1–10 gallery images or videos.');
   if (builds.length > 1) throw projectError('Select at most one build.');
-  if (builds.length && !['public', 'request', 'none'].includes(input.permission)) throw projectError('Choose a valid download permission.');
+  if (hasBuild && !['public', 'request', 'none'].includes(input.permission)) throw projectError('Choose a valid download permission.');
   if (files.reduce((sum, file) => sum + file.size, 0) > projectLimits.totalSize) throw projectError('Combined uploads exceed 300 MiB.', 413);
   for (const file of files) {
     if (!file.size) throw projectError('Empty files are not supported.');
@@ -43,5 +45,39 @@ export function validateProject(input, files) {
       throw projectError(`${file.originalname}: file is too large.`, 413);
     }
   }
-  return { ...project, permission: builds.length ? input.permission : null };
+  return { ...project, permission: hasBuild ? input.permission : null };
+}
+
+export function validateProjectUpdate(input, files, current) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) throw projectError('Project details must be an object.');
+  const { mediaOrder, buildAction, ...details } = input;
+  if (!Array.isArray(mediaOrder) || mediaOrder.length < 1 || mediaOrder.length > projectLimits.mediaCount) {
+    throw projectError('Select 1–10 gallery images or videos.');
+  }
+  const media = files.filter(file => file.fieldname === 'media');
+  const build = files.find(file => file.fieldname === 'build');
+  const existing = new Map(current.media.map(file => [file.id, file]));
+  const usedUploads = new Set();
+  const usedExisting = new Set();
+  const ordered = mediaOrder.map(entry => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry) || Object.keys(entry).length !== 1) {
+      throw projectError('Invalid gallery order.');
+    }
+    if (Number.isInteger(entry.uploadIndex) && media[entry.uploadIndex] && !usedUploads.has(entry.uploadIndex)) {
+      usedUploads.add(entry.uploadIndex);
+      return { upload: media[entry.uploadIndex] };
+    }
+    if (existing.has(entry.fileId) && !usedExisting.has(entry.fileId)) {
+      usedExisting.add(entry.fileId);
+      return { retained: existing.get(entry.fileId) };
+    }
+    throw projectError('Gallery contains an unknown or duplicate file.');
+  });
+  if (usedUploads.size !== media.length) throw projectError('Every uploaded media file must appear in the gallery.');
+  if (!['keep', 'replace', 'remove'].includes(buildAction) || (buildAction === 'replace') !== Boolean(build)) {
+    throw projectError('A replacement requires one build file. Retaining or removing it requires no upload.');
+  }
+  const retainedBuild = buildAction === 'keep' ? current.build : null;
+  const fields = validateProject(details, files, { mediaCount: ordered.length, hasBuild: Boolean(build || retainedBuild) });
+  return { fields, ordered, build, retainedBuild };
 }

@@ -141,6 +141,74 @@ test('project API persists optional associations/files, enforces ownership, vali
     assert.equal((await create(details, owner.token)).status, 500);
     assert.equal((await fixture.inspection.query('SELECT count(*) FROM portfolio.projects')).rows[0].count, countBefore);
     assert.deepEqual((await readdir(directory)).filter(name => !name.startsWith('.upload-')).sort(), filesBefore);
+    const draftUrl = `/projects/${draft.id}`;
+    const existing = await get(draftUrl, owner.token);
+    const originalRevision = existing.headers.get('ETag');
+    assert.equal(originalRevision, '"1"');
+    const [first, second] = draft.media;
+    const edit = { ...details, title: 'Edited project', published: false, permission: 'public',
+      buildAction: 'keep', mediaOrder: [{ fileId: second.id }, { fileId: first.id }] };
+    const update = (input, tag, { token = owner.token, uploads = [], build } = {}) => {
+      const body = new FormData();
+      body.set('project', JSON.stringify(input));
+      uploads.forEach(name => body.append('media', new Blob([image], { type: 'image/png' }), name));
+      if (build) body.set('build', new Blob([archive]), build);
+      return fetch(base + draftUrl, { method: 'PUT',
+        headers: { ...headers(token), ...(tag ? { 'If-Match': tag } : {}) }, body });
+    };
+    const remove = (tag, token = owner.token) => fetch(base + draftUrl, {
+      method: 'DELETE', headers: { ...headers(token), ...(tag ? { 'If-Match': tag } : {}) },
+    });
+
+    assert.equal((await update(edit, null)).status, 428);
+    assert.equal((await update(edit, originalRevision, { token: other.token })).status, 404);
+    assert.equal((await remove(originalRevision, other.token)).status, 404);
+    assert.equal((await update({ ...edit, mediaOrder: [] }, originalRevision)).status, 400);
+    assert.equal((await update({ ...edit, mediaOrder: [{ fileId: project.media[0].id }] }, originalRevision)).status, 400);
+    assert.equal((await update({ ...edit, mediaOrder: [{ fileId: first.id }, { fileId: first.id }] }, originalRevision)).status, 400);
+    assert.equal((await update(edit, originalRevision, { uploads: ['unreferenced.png'] })).status, 400);
+
+    const races = await Promise.all([update(edit, originalRevision), update(edit, originalRevision)]);
+    assert.deepEqual(races.map(response => response.status).sort(), [200, 412]);
+    const saved = races.find(response => response.ok);
+    const revised = saved.headers.get('ETag');
+    const edited = (await saved.json()).project;
+    assert.equal(edited.id, draft.id);
+    assert.equal(edited.ownerId, draft.ownerId);
+    assert.equal(edited.notes, null);
+    assert.deepEqual(edited.media.map(media => media.id), [second.id, first.id]);
+    assert.equal(edited.build.id, draft.build.id);
+    assert.equal(edited.build.permission, 'public');
+    assert.equal((await remove(originalRevision)).status, 412);
+
+    await fixture.inspection.query("ALTER TABLE portfolio.projects ADD CHECK (title <> 'Database rejects edit')");
+    const replace = { ...edit, title: 'Database rejects edit', published: true, story: 'New story',
+      buildAction: 'replace', mediaOrder: [{ uploadIndex: 0 }, { fileId: first.id }] };
+    assert.equal((await update(replace, revised, { uploads: ['third.png'], build: 'new.zip' })).status, 500);
+    assert.equal((await get(draftUrl, owner.token)).headers.get('ETag'), revised);
+    assert.deepEqual((await readdir(directory)).filter(name => !name.startsWith('.upload-')).sort(), filesBefore);
+
+    const replaced = await update({ ...replace, title: 'Replacement' }, revised, { uploads: ['third.png'], build: 'new.zip' });
+    assert.equal(replaced.status, 200, await replaced.clone().text());
+    const finalProject = (await replaced.json()).project;
+    assert.equal(finalProject.published, true);
+    assert.equal(finalProject.notes.story, 'New story');
+    assert.deepEqual(finalProject.media.map(media => media.name), ['third.png', first.name]);
+    assert.equal(finalProject.media[1].id, first.id);
+    assert.equal((await get(`/projects/files/${second.id}`, owner.token)).status, 404);
+    assert.equal((await get(`/projects/files/${draft.build.id}`, owner.token)).status, 404);
+    const removedBuild = await update({ ...edit, buildAction: 'remove', mediaOrder: [{ fileId: first.id }] }, replaced.headers.get('ETag'));
+    assert.equal(removedBuild.status, 200);
+    assert.equal((await removedBuild.json()).project.build, null);
+    assert.equal((await get(`/projects/files/${finalProject.build.id}`, owner.token)).status, 404);
+    assert.equal((await remove(null)).status, 428);
+    assert.equal((await remove(removedBuild.headers.get('ETag'))).status, 204);
+    assert.equal((await get(draftUrl, owner.token)).status, 404);
+    assert.equal((await get(`/projects/files/${first.id}`, owner.token)).status, 404);
+    assert.ok(!(await readdir(directory)).includes(first.id));
+    const associations = await fixture.inspection.query('SELECT count(*) FROM portfolio.project_files WHERE project_id = $1', [draft.id]);
+    assert.equal(associations.rows[0].count, '0');
+
     const logout = await fetch(base + '/logout', { method: 'POST', headers: { Cookie: owner.cookie } });
     assert.equal(logout.status, 204);
     assert.equal((await get('/projects', owner.token)).status, 401);
