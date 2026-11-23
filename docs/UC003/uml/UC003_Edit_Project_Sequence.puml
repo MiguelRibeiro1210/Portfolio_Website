@@ -1,0 +1,40 @@
+@startuml UC003_Update_Project_Sequence
+!theme plain
+title UC003 — Save project changes
+
+actor "Portfolio owner" as Owner
+participant "public/js/app.js" as App
+participant "public/js/api.js" as Client
+participant "src/server.js" as Server
+participant "src/routes/project.routes.js" as API
+participant "src/middleware/requireAuth.js" as Auth
+participant "src/services/projectService.js" as Service
+participant "src/domain/projectRules.js" as Rules
+participant "src/services/fileStorageService.js" as Files
+participant "src/db/database.js" as Data
+database PostgreSQL as DB
+
+Owner -> App : Edit the project and click Save changes
+App -> Client : Submit fields, desired file order, and new files
+Client -> Server : PUT /api/projects/:id\nBearer token, If-Match, multipart form
+Server -> API : Dispatch through the projects router
+API -> Auth : Verify active session
+Auth --> API : Set req.user
+API -> Service : Update the owned project
+Service -> Rules : Apply UC002 rules to the requested changes
+opt New media or a replacement build
+  Service -> Files : Validate and store new files
+  Files --> Service : Stored file metadata
+end
+Service -> Data : Save changes for owner and expected revision
+Data -> DB : Check owner and revision, then update records in one transaction
+DB --> Data : Commit succeeded
+Data --> Service : Updated project and obsolete file IDs
+opt Files were superseded or removed
+  Service -> Files : Remove obsolete files after commit
+end
+Service --> API : Updated project and revision
+API --> Client : 200 OK with project and new ETag
+Client --> App : Saved project
+App --> Owner : Show confirmation and updated project
+@enduml

@@ -1,0 +1,34 @@
+@startuml UC003_Delete_Project_Sequence
+!theme plain
+title UC003 — Confirm and delete a project
+
+actor "Portfolio owner" as Owner
+participant "public/js/app.js" as App
+participant "public/js/api.js" as Client
+participant "src/server.js" as Server
+participant "src/routes/project.routes.js" as API
+participant "src/middleware/requireAuth.js" as Auth
+participant "src/services/projectService.js" as Service
+participant "src/db/database.js" as Data
+participant "src/services/fileStorageService.js" as Files
+database PostgreSQL as DB
+
+Owner -> App : Delete project
+App --> Owner : Ask for confirmation
+Owner -> App : Confirm deletion
+App -> Client : Delete the saved project
+Client -> Server : DELETE /api/projects/:id\nBearer token and If-Match
+Server -> API : Dispatch through the projects router
+API -> Auth : Verify active session
+Auth --> API : Set req.user
+API -> Service : Delete the owned project
+Service -> Data : Delete for owner and expected revision
+Data -> DB : Capture file IDs and delete project and associations
+DB --> Data : Commit succeeded
+Data --> Service : Removed project file IDs
+Service -> Files : Remove stored files after commit
+Service --> API : Project deleted
+API --> Client : 204 No Content
+Client --> App : Deletion confirmed
+App --> Owner : Return to the studio list
+@enduml
