@@ -12,9 +12,9 @@ test.beforeEach(async ({ page }) => {
   });
   page.__errors=errors;
   await page.goto('/');
-  await expect(page.getByRole('heading',{name:'Back to building.'})).toBeVisible();
-  await page.getByRole('link',{name:'Projects',exact:true}).click();
-  await expect(page.getByRole('heading',{name:/Ideas. Unboxed./})).toBeVisible();
+  await expect(page.getByRole('heading',{name:'Welcome back.'})).toBeVisible();
+  await page.getByRole('navigation').getByRole('link',{name:'Showroom',exact:true}).click();
+  await expect(page.getByRole('heading',{name:/Your Projects/})).toBeVisible();
 });
 test.afterEach(async ({ page }) => { expect(page.__errors).toEqual([]); });
 
@@ -33,7 +33,7 @@ async function ensureSignedIn(page) {
   await navigate(page, '/signin');
   await page.getByLabel('Email address').fill(email);
   await page.getByLabel('Password', { exact: true }).fill('sample-password');
-  await page.getByRole('button', { name: 'Sign in to your gallery' }).click();
+  await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
 }
 async function saveProject(page,{title='A real project',type='open',permission='public'}={}) {
@@ -52,19 +52,20 @@ async function saveProject(page,{title='A real project',type='open',permission='
   return page.url().split('/studio/')[1];
 }
 test('all pages render and remain inside the viewport', async ({page}, testInfo) => {
-  for(const path of ['/','/project/placeholder','/about','/studio','/studio?section=profile','/studio?section=security','/signin','/register','/reset','/states','/does-not-exist']) {
+  for(const path of ['/','/project/missing','/about','/studio','/studio?section=profile','/studio?section=security','/signin','/register','/reset','/does-not-exist']) {
     await navigate(page,path);
+    await expect(page.locator('body')).toHaveAttribute('data-page', path.split(/[/?]/)[1] || 'home');
     await expect(page.locator('h1')).toBeVisible();
+    if (path === '/studio') await expect(page.getByRole('heading', { name: 'This studio is private.' })).toBeVisible();
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),path).toBe(true);
     if(path==='/') {
-      await expect(page.locator('.showroom-heading h1')).toHaveText('Ideas. Unboxed.');
-      await expect(page.locator('.site-header')).toHaveCSS('background-color','rgb(121, 46, 48)');
+      await expect(page.locator('.showroom-heading h1')).toHaveText('Your Projects');
+      await expect(page.locator('.site-header')).toHaveCSS('background-color','rgb(245, 245, 242)');
       await expect(page.locator('body')).toHaveCSS('background-color','rgba(0, 0, 0, 0)');
-      await expect(page.locator('.project-card').first()).toHaveCSS('background-color','rgb(121, 46, 48)');
-      const geometry=await page.locator('.project-visual .form').first().evaluate(el=>({bottom:el.getBoundingClientRect().bottom,textBottom:el.querySelector('.mock-type-row').getBoundingClientRect().bottom}));
-      expect(geometry.textBottom).toBeLessThanOrEqual(geometry.bottom+1);
+      await expect(page.getByRole('heading', { name: 'No published projects yet.' })).toBeVisible();
+      await expect(page.locator('.featured-project, .project-card')).toHaveCount(0);
     }
-    if (['/','/project/placeholder','/studio','/about','/signin','/states'].includes(path)) {
+    if (['/','/project/missing','/studio','/about','/signin'].includes(path)) {
       await page.screenshot({path:testInfo.outputPath(`${path.replaceAll('/','-')||'home'}.png`), fullPage:true});
     }
     const viewport=page.viewportSize();
@@ -73,8 +74,10 @@ test('all pages render and remain inside the viewport', async ({page}, testInfo)
     await page.setViewportSize(viewport);
   }
   await navigate(page,'/');
-  await page.getByRole('button',{name:'Explore the collection'}).click();
-  await expect(page.locator('#collection')).toBeInViewport();
+  await ensureSignedIn(page);
+  await navigate(page, '/');
+  await page.getByRole('link', { name: 'Create your first project' }).click();
+  await expect(page.getByLabel('Project title')).toBeVisible();
 });
 test('create a project, filter the collection, and reload saved details',async ({page})=>{
   const id=await saveProject(page);
@@ -87,7 +90,7 @@ test('create a project, filter the collection, and reload saved details',async (
   await expect(page.locator('h1')).toHaveText('A real project');
   await page.getByRole('tab',{name:'Release notes'}).click();
   await expect(page.getByRole('tabpanel')).toContainText('Release notes will appear here.');
-  await page.getByRole('tab',{name:'Tech specs'}).click();
+  await page.getByRole('tab',{name:'Technical details'}).click();
   await expect(page.getByRole('tabpanel')).toContainText('JavaScript, CSS');
   await page.reload();
   await expect(page.locator('h1')).toHaveText('A real project');
@@ -96,9 +99,10 @@ test('create a project, filter the collection, and reload saved details',async (
   await expect(page.getByLabel('Project title')).toHaveValue('A real project');
   await expect(page.getByLabel('Project title')).toBeEnabled();
 });
-test('edit a saved project, keep and reorder its media, then confirm deletion', async ({ page }) => {
+test('edit a saved project, keep and reorder its media, then confirm deletion', async ({ page }, testInfo) => {
   const id = await saveProject(page, { title: 'Original project' });
   await expect(page.getByLabel('Project title')).toHaveValue('Original project');
+  await page.screenshot({ path: testInfo.outputPath('studio.png'), fullPage: true });
   const gallery = page.locator('#pending-media');
   const existing = gallery.locator('[data-file-row]').first();
   const firstId = await existing.getAttribute('data-file-row');
@@ -124,6 +128,29 @@ test('edit a saved project, keep and reorder its media, then confirm deletion', 
   await expect(page.locator('.draft-chip')).toHaveCount(0);
 });
 
+test('a signed-out visitor can open a shared showroom and its published project', async ({ page, browser }) => {
+  const id = await saveProject(page, { title: 'Shared project' });
+  await expect(page.getByLabel('Project title')).toHaveValue('Shared project');
+  await navigate(page, '/');
+  const publicLink = await page.getByRole('link', { name: 'View public showroom' }).getAttribute('href');
+  const url = new URL(publicLink, page.url()).href;
+  const visitor = await browser.newPage();
+  try {
+    await visitor.goto(url);
+    await expect(visitor.getByRole('heading', { name: 'Shared project' }).first()).toBeVisible();
+    await expect(visitor.locator('.featured-preview img')).toBeVisible();
+    await visitor.getByRole('link', { name: 'Explore project' }).click();
+    await expect(visitor).toHaveURL(`${url}/${id}`);
+    await expect(visitor.getByRole('heading', { name: 'Shared project', exact: true, level: 1 })).toBeVisible();
+    await expect(visitor.getByRole('link', { name: 'Edit project' })).toHaveCount(0);
+    await expect(visitor.locator('.project-stage img')).toBeVisible();
+    await visitor.getByRole('navigation').getByRole('link', { name: 'Showroom', exact: true }).click();
+    await expect(visitor).toHaveURL(url);
+  } finally { await visitor.close(); }
+  await page.goto(`${url}/${id}`);
+  await expect(page.getByRole('link', { name: 'Edit project' })).toBeVisible();
+});
+
 test('featured project controls cycle through saved projects',async ({page})=>{
   await saveProject(page,{title:'First project'});
   await saveProject(page,{title:'Second project',type:'private'});
@@ -137,9 +164,9 @@ test('featured project controls cycle through saved projects',async ({page})=>{
 test('fresh visits start at sign-in and explicit page links remain available',async ({page})=>{
   await page.goto('/');
   await expect(page).toHaveURL(/#\/signin$/);
-  await expect(page.getByRole('heading',{name:'Back to building.'})).toBeVisible();
-  await page.getByRole('link',{name:'Projects',exact:true}).click();
-  await expect(page.getByRole('heading',{name:'Ideas. Unboxed.'})).toBeVisible();
+  await expect(page.getByRole('heading',{name:'Welcome back.'})).toBeVisible();
+  await page.getByRole('navigation').getByRole('link',{name:'Showroom',exact:true}).click();
+  await expect(page.getByRole('heading',{name:'Your Projects'})).toBeVisible();
   await page.goto('/#/about');
   await expect(page.getByRole('heading',{name:'Behind the projects.'})).toBeVisible();
   await page.reload();
@@ -329,11 +356,12 @@ test('unsaved changes are protected and preferences apply to new projects',async
 });
 test('account forms show invalid credentials and explain an unconfigured provider and pending reset flow',async({page})=>{
   await navigate(page,'/signin');
+  await expect(page.getByRole('link', { name: 'Forgot password?' })).toHaveCount(0);
   await page.getByLabel('Email address').fill(`missing-${randomUUID()}@example.com`);
   await page.getByLabel('Password',{exact:true}).fill('password123');
   await page.getByRole('button',{name:'Show',exact:true}).click();
   await expect(page.getByLabel('Password',{exact:true})).toHaveAttribute('type','text');
-  await page.getByRole('button',{name:'Sign in to your gallery'}).click();
+  await page.getByRole('button',{name:'Sign in'}).click();
   await expect(page.locator('#auth-feedback')).toContainText('Invalid email or password.');
   await expect(page.getByLabel('Password',{exact:true})).toHaveValue('');
   await page.getByRole('link',{name:'Continue with GitHub'}).click();
@@ -354,7 +382,7 @@ test('sign-in survives reload and sign-out ends the browser session', async ({ p
   await navigate(page, '/signin');
   await page.getByLabel('Email address').fill(email);
   await page.getByLabel('Password', { exact: true }).fill(password);
-  await page.getByRole('button', { name: 'Sign in to your gallery' }).click();
+  await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page).toHaveURL(/#\/$/);
   await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
@@ -364,23 +392,20 @@ test('sign-in survives reload and sign-out ends the browser session', async ({ p
   await page.getByRole('button', { name: 'Sign out' }).click();
   await expect(page).toHaveURL(/#\/signin$/);
   await page.reload();
-  await expect(page.getByRole('heading', { name: 'Back to building.' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Welcome back.' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Sign out' })).toHaveCount(0);
 });
 
-test('state controls and keyboard tabs work',async({page})=>{
+test('keyboard navigation works and the system states preview is inaccessible',async({page})=>{
   await page.locator('.skip-link').focus();
   await page.keyboard.press('Enter');
   await expect(page.locator('#main')).toBeFocused();
-  await expect(page.getByRole('heading',{name:/Ideas. Unboxed./})).toBeVisible();
-  await navigate(page,'/states');
-  await page.getByRole('button',{name:'Preview loading'}).click();
-  await expect(page.getByRole('dialog')).toBeVisible();
-  await expect(page.getByRole('dialog')).not.toBeVisible({timeout:5000});
-  await page.getByRole('button',{name:'Try again'}).click();
-  await expect(page).toHaveURL(/#\/$/);
+  await expect(page.getByRole('heading',{name:/Your Projects/})).toBeVisible();
+  await expect(page.getByRole('link', { name: 'System states' })).toHaveCount(0);
+  await navigate(page, '/states');
+  await expect(page.getByRole('heading', { name: 'Let’s head back to the gallery.' })).toBeVisible();
   await navigate(page,'/about');
   await page.getByRole('tab',{name:'About',exact:true}).focus();await page.keyboard.press('ArrowRight');
-  await expect(page.getByRole('tab',{name:'Experience',exact:true})).toHaveAttribute('aria-selected','true');
+  await expect(page.getByRole('tab',{name:'Projects',exact:true})).toHaveAttribute('aria-selected','true');
 
 });

@@ -198,6 +198,8 @@ Apply [migration 006](src/db/migrations/006_add_public_showrooms.sql) to assign 
 | `GET /api/showrooms/:showroomId/projects/:projectId` | Public | Return the published project and its media metadata. |
 | `GET /api/showrooms/:showroomId/projects/:projectId/files/:fileId` | Public | Serve gallery media inline and eligible build files as downloads. |
 
+After signing in, use **View public showroom** in your collection's footer to open the shareable page. Visitors can follow that link or a project's overview URL without signing in.
+
 Public reads work for signed-out and signed-in visitors. Drafts and unlisted files return `404`. A build set to `request` or `none` exposes only its permission in the public project response. The public file endpoint returns `404` for those builds. Owners can still use their authenticated file route. Closed-source projects omit the source repository URL from public responses.
 
 ## CV Builder Setup

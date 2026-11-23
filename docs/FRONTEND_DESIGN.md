@@ -8,7 +8,7 @@ This document defines the **planned frontend** for the portfolio application. It
 
 The backend API, database, authentication service, and durable file storage **will be implemented separately**. They appear in this design only to explain the connections the frontend will require. Backend frameworks, database engines, endpoint paths, authentication protocols, schemas, and hosting providers are outside this document's scope.
 
-The frontend will provide a responsive portfolio and editing experience based on the supplied six-screen design. It will use charcoal surfaces, burgundy panels, light neutral project mockups, and consistent typography and controls. It will omit profile pictures and show placeholders for information that has not been supplied.
+The six-screen redesign uses a light neutral canvas, white panels, blue primary actions, compact navigation, and responsive layouts. Saved projects and profiles supply the content, with neutral placeholders for empty preview data.
 
 ## Users and navigation
 
@@ -31,7 +31,7 @@ The route names below identify frontend destinations, not backend API endpoints.
 | About and CV | `#/about` | Present introduction, experience, education, skills, and contact information, with a CV download when a document is available. |
 | Profile editor | `#/studio?section=profile` | Edit profile information and select, replace, or remove a PDF CV. |
 | Access settings | `#/studio?section=security` | Present account connection state and edit download-permission preferences supported by the backend. |
-| System states | `#/states` | Define the loading, temporarily unavailable, and first-project/empty presentations and their recovery actions. |
+| System states | Within the relevant screen | Show loading, unavailable, empty, or restricted access feedback and offer a recovery action where available. |
 | Missing content | Unknown routes or unavailable project IDs | Explain that the content is unavailable and provide navigation back to the collection. |
 
 Empty modules will retain their layout and useful next action without inventing names, dates, project details, or account information. A request failure will use an error/retry presentation rather than pretending that no data exists.

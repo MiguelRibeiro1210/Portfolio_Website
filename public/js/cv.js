@@ -1,8 +1,67 @@
-import { publicCvUrl } from './api.js';
-import { escapeHTML as e, link, placeholder, icon } from './ui.js';
-export function aboutPage(state, tab = 'about', owner = false) {
+import { publicCvUrl, showroomPath } from './api.js';
+import { escapeHTML as e, link, placeholder } from './ui.js';
+import { projectCard } from './project.js';
+
+export function aboutPage(state, tab = 'about', owner = false, viewer = null) {
   const p = state.profile;
-  const entries = { about: ['Good software is a form of care.', p.summary, 'Your introduction and approach to your work.'], experience: ['The work along the way.', p.experience, 'Add roles, organizations, dates, and what you worked on.'], education: ['Always a little more to learn.',p.education,'Add qualifications, institutions, and dates.'], skills: ['A few tools of the trade.',p.skills,'Add the skills and technologies you work with.'], contact: ['Good things start with a conversation.',p.email,'Add your contact details to open a conversation.'] };
-  const selected = entries[tab] ? tab : 'about'; const [title,value,hint] = entries[selected];
-  return `<section class="about-layout"><aside class="about-identity"><p class="eyebrow">THE PERSON BEHIND THE PROJECTS</p><div><h2>${p.name?e(p.name):placeholder('Your name')}</h2><p>${p.role?e(p.role):placeholder('Your role')}</p><span class="identity-location">${p.location?e(p.location):placeholder('Your location')}</span></div><span class="identity-foot">A little craft. A lot of curiosity.</span></aside><div class="about-content"><p class="eyebrow">BEHIND THE WORK</p><h1>Behind the projects.</h1><div class="tabs" role="tablist" aria-label="About sections">${Object.keys(entries).map(key=>`<button type="button" role="tab" id="about-tab-${key}" aria-controls="about-panel" aria-selected="${selected===key}" tabindex="${selected===key?0:-1}" class="${selected===key?'active':''}" data-about-tab="${key}">${key[0].toUpperCase()+key.slice(1)}</button>`).join('')}</div><section id="about-panel" class="about-panel" role="tabpanel" aria-labelledby="about-tab-${selected}"><h2>${title}</h2>${selected==='skills' && value ? `<div class="skill-tags">${value.split(/[,\n]/).filter(Boolean).map(s=>`<span>${e(s.trim())}</span>`).join('')}</div>` : selected==='contact' && value ? `<a class="contact-email" href="mailto:${e(value)}">${e(value)} ${icon('external')}</a>` : `<p class="preserve-lines">${value?e(value):placeholder(hint)}</p>`}${selected === 'contact' ? `<div>${p.github ? `<a href="${e(p.github)}" rel="noopener noreferrer">GitHub ↗</a>` : ''} ${p.linkedin ? `<a href="${e(p.linkedin)}" rel="noopener noreferrer">LinkedIn ↗</a>` : ''}</div>` : ''}</section><div class="about-facts"><section><p class="eyebrow">EXPERIENCE</p><h3>${p.experience?'A path of progress.':placeholder('Your experience')}</h3><p class="preserve-lines">${p.experience?e(p.experience):placeholder('Roles, teams, and contributions')}</p></section><section><p class="eyebrow">EDUCATION</p><h3>${p.education?'Built on curiosity.':placeholder('Your education')}</h3><p class="preserve-lines">${p.education?e(p.education):placeholder('Qualifications and institutions')}</p></section></div><section class="about-skills"><p class="eyebrow">SELECTED SKILLS</p><div class="skill-tags">${p.skills?p.skills.split(/[,\n]/).filter(Boolean).map(s=>`<span>${e(s.trim())}</span>`).join(''):'<span class="placeholder">Your skills will appear here</span>'}</div></section><section class="contact-banner"><div><h3>Let’s make something worth sharing.</h3><p>Have a project in mind? There’s room for a conversation.</p></div>${p.email?`<a class="btn" href="mailto:${e(p.email)}">Get in touch ${icon('external')}</a>`:owner?link('Add contact details','#/studio?section=profile','','plus'):''}</section><div class="about-cv-note"><span>${p.cvName?e(p.cvName):placeholder('CV document placeholder')}</span>${p.cvId?`${link('Preview CV',publicCvUrl(p.cvId),'text-btn','external')}${link('Download CV',publicCvUrl(p.cvId,true),'text-btn','download')}`:owner?link('Add your CV','#/studio?section=profile','text-btn','plus'):''}</div></div></section>`;
+  const projects = (state.projects ?? []).filter(project => project.published);
+  const tabs = { about: 'About', projects: 'Projects', experience: 'Experience', education: 'Education', skills: 'Skills', contact: 'Contact' };
+  const selected = Object.hasOwn(tabs, tab) ? tab : 'about';
+  const skills = (p.skills ?? '').split(/[,\n]/).map(skill => skill.trim()).filter(Boolean);
+  const contact = p.email || p.github || p.linkedin;
+  const accountLinks = `
+    ${p.github ? `<a href="${e(p.github)}" rel="noopener noreferrer">GitHub ↗</a>` : ''}
+    ${p.linkedin ? `<a href="${e(p.linkedin)}" rel="noopener noreferrer">LinkedIn ↗</a>` : ''}`;
+  const projectSection = projects.length ? `<section class="profile-section">
+    <div class="profile-section-heading"><h2>Selected projects</h2>
+      ${viewer ? link('View showroom', showroomPath(viewer.id), 'text-btn', 'external') : ''}
+    </div><div class="profile-project-grid">${projects.slice(0, 2).map((item, index) => projectCard(item, index, viewer)).join('')}</div>
+  </section>` : '';
+  const record = (title, value, hint) => `<section class="profile-section"><h2>${title}</h2>
+    <div class="profile-entry preserve-lines">${value ? e(value) : placeholder(hint)}</div></section>`;
+  const experience = record('Experience', p.experience, 'No experience added.');
+  const education = record('Education', p.education, 'No education added.');
+  const skillSection = `<section class="profile-section"><h2>Skills & tools</h2>
+    <div class="skill-tags">${skills.length ? skills.map(skill => `<span>${e(skill)}</span>`).join('') : placeholder('No skills added.')}</div></section>`;
+  const content = {
+    about: `<h2 class="profile-role">${p.role ? e(p.role) : 'About this profile'}</h2>
+      <p class="preserve-lines">${p.summary ? e(p.summary) : placeholder('No introduction added.')}</p>
+      ${projectSection}${experience}${education}${skillSection}`,
+    projects: projectSection || '<p>No published projects yet.</p>',
+    experience,
+    education,
+    skills: skillSection,
+    contact: `<section class="profile-section"><h2>Contact</h2>
+      ${p.email ? `<a href="mailto:${e(p.email)}">${e(p.email)}</a>` : ''}
+      ${contact ? `<div class="profile-social">${accountLinks}</div>` : '<p>No contact details added.</p>'}
+    </section>`,
+  };
+  return `<div class="profile-page section-pad">
+    <p class="profile-breadcrumb">Showroom / About & CV</p>
+    <div class="about-layout"><aside class="profile-sidebar">
+      <section class="about-identity">
+        <p class="eyebrow">Builder profile</p>
+        <h2>${p.name ? e(p.name) : placeholder('Your name')}</h2>
+        ${p.role ? `<p class="identity-role">${e(p.role)}</p>` : ''}
+        ${p.summary ? `<p class="identity-summary preserve-lines">${e(p.summary)}</p>` : ''}
+        ${p.location ? `<p class="identity-location">${e(p.location)}</p>` : ''}
+        ${p.email ? `<a class="btn primary full" href="mailto:${e(p.email)}">Get in touch ↗</a>` : ''}
+        ${p.github || p.linkedin ? `<div class="profile-social">${accountLinks}</div>` : ''}
+      </section>
+      ${p.cvId ? `<section class="profile-cv">
+        <iframe title="CV document preview" loading="lazy" src="${publicCvUrl(p.cvId)}#toolbar=0"></iframe>
+        <p class="fine-print">${e(p.cvName)}</p>
+        ${link('Download CV', publicCvUrl(p.cvId, true), 'full', 'download')}
+        ${link('Preview CV', publicCvUrl(p.cvId), 'text-btn', 'external')}
+      </section>` : owner ? `<section class="profile-cv">${link('Add your CV', '#/studio?section=profile', '', 'plus')}</section>` : ''}
+    </aside><div class="about-content">
+      <h1 class="profile-heading">Behind the projects.</h1>
+      <div class="tabs" role="tablist" aria-label="About sections">
+        ${Object.entries(tabs).map(([key, label]) => `<button type="button" role="tab" id="about-tab-${key}"
+          aria-controls="about-panel" aria-selected="${selected === key}" tabindex="${selected === key ? 0 : -1}"
+          class="${selected === key ? 'active' : ''}" data-about-tab="${key}">${label}</button>`).join('')}
+      </div>
+      <section id="about-panel" class="about-panel" role="tabpanel" aria-labelledby="about-tab-${selected}">${content[selected]}</section>
+    </div></div>
+  </div>`;
 }

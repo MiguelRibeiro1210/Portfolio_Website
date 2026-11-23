@@ -1,5 +1,44 @@
-import { field, icon, link, button, mockup } from './ui.js';
+import { field, icon, link, button } from './ui.js';
+
 export function authPage(mode = 'signin', status = '') {
-  const register = mode === 'register'; const reset = mode === 'reset';
-  return `<div class="auth-layout"><section class="auth-art"><p class="eyebrow">MADE TO BE EXPLORED</p><h2>Big ideas.<br>Meet their stage.</h2><div class="auth-project-preview">${mockup('atlas')}</div><p class="auth-art-message">Your next big thing<br>belongs out in the world.</p><span class="eyebrow auth-art-bottom">OPEN IDEAS. PRIVATE MASTERPIECES. ALL YOURS.</span></section><section class="auth-form-wrap"><div class="auth-form-inner"><p class="eyebrow">${register?'YOUR NEXT CHAPTER STARTS HERE':reset?'A LITTLE HELP GETTING BACK':'WELCOME BACK, CURATOR'}</p><h1>${register?'Make yourself at home.':reset?'Let’s find your way back.':'Back to building.'}</h1><p>${register?'Create a home for your projects and the story behind them.':reset?'Enter your email to prepare a password reset request.':'Sign in to curate your projects and keep your ideas moving.'}</p>${reset ? '<div class="connection-note"><span class="status-dot"></span> Password reset coming soon</div>' : ''}${reset ? '' : `${link('Continue with Google', '/api/oauth/google/start', 'full')}${link('Continue with GitHub', '/api/oauth/github/start', 'full github-button', 'github')}<div class="or-divider"><span>or</span></div>`}<form id="auth-form" data-mode="${mode}">${register?field('Your name','name','','Your name','text',true):''}${field('Email address','email','','you@example.com','email',true)}${!reset?`<div class="password-label"><span>Password</span>${!register?'<a href="#/reset">Forgot password?</a>':''}</div><div class="password-field"><input aria-label="Password" name="password" id="password" type="password" placeholder="${register?'Create a password (at least 8 characters)':'Enter your password'}" required minlength="${register?8:1}" autocomplete="${register?'new-password':'current-password'}"><button type="button" data-action="toggle-password" aria-controls="password" aria-pressed="false">Show</button></div>`:''}<button type="submit" class="btn primary full">${register?'Create your gallery':reset?'Request reset link':'Sign in to your gallery'} ${icon('arrow')}</button><p id="auth-feedback" class="form-feedback" role="status">${status}</p></form><p class="auth-switch">${register?'Already have a gallery? <a href="#/signin">Sign in ↗</a>':reset?'<a href="#/signin">← Back to sign in</a>':'New to folio? <a href="#/register">Create your gallery ↗</a>'}</p><div class="preview-entry"><p>Looking for inspiration? See what other makers are building.</p>${link('Explore portfolios','#/','','arrow')}</div><p class="fine-print auth-privacy">Browse portfolios and discover new ideas. Sign in to create a space for your own work.</p><div class="auth-legal">${button('Terms of use','terms','text-btn')}<span>·</span>${button('Privacy','privacy','text-btn')}</div></div></section></div>`;
+  const register = mode === 'register';
+  const reset = mode === 'reset';
+  const heading = register ? 'Create an account.' : reset ? 'Reset your password.' : 'Welcome back.';
+  const description = register ? 'Give your work a place to live.'
+    : reset ? 'Enter the email associated with your account.' : 'Your next chapter starts in your studio.';
+
+  return `<div class="auth-layout section-pad">
+    <section class="auth-art">
+      <p class="eyebrow">A home for your work</p>
+      <span class="wordmark">folio</span>
+      <h2>You built it.<br>Now show it.</h2>
+      <div class="auth-art-message">
+        <p class="eyebrow">One profile. All your potential.</p>
+        <p>Made for developers, students, and the things they’re making next.</p>
+      </div>
+    </section>
+    <section class="auth-form-wrap"><div class="auth-form-inner">
+      <h1>${heading}</h1>
+      <p>${description}</p>
+      ${reset ? '<p class="fine-print">Password reset is coming soon.</p>' : `<div class="auth-providers">
+        ${link('Continue with Google', '/api/oauth/google/start', 'full')}
+        ${link('Continue with GitHub', '/api/oauth/github/start', 'full')}
+      </div><div class="or-divider"><span>Or with email</span></div>`}
+      <form id="auth-form" data-mode="${mode}">
+        ${register ? field('Your name', 'name', '', 'Your name', 'text', true) : ''}
+        ${field('Email address', 'email', '', 'you@example.com', 'email', true)}
+        ${reset ? '' : `<label class="password-label" for="password">Password</label>
+        <div class="password-field"><input aria-label="Password" name="password" id="password" type="password"
+          placeholder="${register ? 'Create a password (at least 8 characters)' : 'Enter your password'}"
+          required minlength="${register ? 8 : 1}" autocomplete="${register ? 'new-password' : 'current-password'}">
+          <button type="button" data-action="toggle-password" aria-controls="password" aria-pressed="false">Show</button></div>`}
+        <button type="submit" class="btn primary full">${register ? 'Create account' : reset ? 'Request reset link' : 'Sign in'} ${icon('arrow')}</button>
+        <p id="auth-feedback" class="form-feedback" role="status">${status}</p>
+      </form>
+      <div class="auth-legal fine-print">By continuing, you agree to our
+        ${button('Terms of use', 'terms', 'text-btn')} and ${button('Privacy Policy', 'privacy', 'text-btn')}.
+      </div>
+      ${register || reset ? '<p class="auth-switch"><a href="#/signin">Back to sign in ↗</a></p>' : ''}
+    </div></section>
+  </div>`;
 }

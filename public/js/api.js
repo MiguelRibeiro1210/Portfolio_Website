@@ -112,7 +112,7 @@ async function projectRequest(path, options) {
 function projectView(project) {
   return { ...project, story: project.notes?.story || '', compatibility: project.notes?.compatibility || '',
     source: project.notes?.source || '', releaseNotes: project.notes?.releaseNotes || '',
-    builds: project.build ? [project.build] : [], permission: project.build?.permission || 'request' };
+    builds: project.build?.id ? [project.build] : [], permission: project.build?.permission || 'request' };
 }
 function projectFormData(project, files) {
   const body = new FormData();
@@ -212,4 +212,39 @@ export function loadPublicProfile(id) {
 
 export function publicCvUrl(id, download = false) {
   return `/api/profiles/${encodeURIComponent(id)}/cv${download ? '?download=1' : ''}`;
+}
+
+export function showroomPath(id, projectId) {
+  const showroom = `#/showroom/${encodeURIComponent(id)}`;
+  return projectId ? `${showroom}/${encodeURIComponent(projectId)}` : showroom;
+}
+
+function showroomEndpoint(id) {
+  return `/api/showrooms/${encodeURIComponent(id)}/projects`;
+}
+
+export function showroomFileUrl(id, projectId, fileId) {
+  return `${showroomEndpoint(id)}/${encodeURIComponent(projectId)}/files/${encodeURIComponent(fileId)}`;
+}
+
+export async function loadOwnerShowroom() {
+  return (await projectRequest('/api/projects/showroom')).showroom.id;
+}
+
+async function publicProjectRequest(path) {
+  const response = await fetch(path);
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error('Could not load the showroom. Please try again.');
+  return response.json();
+}
+
+export async function loadShowroom(id, projectId) {
+  const endpoint = showroomEndpoint(id);
+  const collection = await publicProjectRequest(endpoint);
+  if (!collection) return null;
+  const result = projectId ? await publicProjectRequest(`${endpoint}/${encodeURIComponent(projectId)}`) : null;
+  return {
+    showroom: collection.showroom,
+    projects: projectId ? (result ? [projectView(result.project)] : []) : collection.projects.map(projectView),
+  };
 }

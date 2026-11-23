@@ -1,4 +1,4 @@
-import { repository, emptyWorkspace, registerAccount, signIn, restoreSession, signOut, createProject, loadProject, updateProject, deleteProject, rememberProject, loadOwnerProfile, saveOwnerProfile, loadPublicProfile, publicCvUrl } from './api.js';
+import { repository, emptyWorkspace, registerAccount, signIn, restoreSession, signOut, createProject, loadProject, updateProject, deleteProject, rememberProject, loadOwnerProfile, saveOwnerProfile, loadPublicProfile, publicCvUrl, showroomPath, showroomFileUrl, loadOwnerShowroom, loadShowroom } from './api.js';
 import { showroom, projectPage, studio } from './project.js';
 import { aboutPage } from './cv.js';
 import { authPage } from './auth.js';
@@ -8,7 +8,22 @@ let state = emptyWorkspace();
 let account = null;
 let featuredIndex = 0;
 let savingProject = false, savingProfile = false, workspaceError = '', profileError = '';
-let aboutLoad, editorLoad;
+let aboutLoad, editorLoad, visitorLoad;
+let ownerShowroomId = null;
+let visitorProjects = [];
+
+async function loadShowroomView(showroomId, projectId) {
+  const data = await loadShowroom(showroomId, projectId);
+  if (!data) return null;
+  const profile = data.showroom.profileId
+    ? await loadPublicProfile(data.showroom.profileId).catch(() => null) : null;
+  return { ...data, profile };
+}
+
+function featuredCount() {
+  const projects = route().showroomId ? visitorProjects : state.projects;
+  return projects.filter(project => project.published).length;
+}
 
 function rememberWorkspaceProject(project) {
   const index = state.projects.findIndex(item => item.id === project.id);
@@ -24,6 +39,7 @@ async function loadProfile() {
 async function loadWorkspace() {
   try { state = await repository.load(); workspaceError = ''; }
   catch (error) { workspaceError = error.message; }
+  ownerShowroomId = account ? await loadOwnerShowroom().catch(() => null) : null;
 }
 let filter = 'all', projectTab = 'specs', aboutTab = 'about', mediaIndex = 0;
 let pendingFiles = [], removedFiles = new Set(), dirty = false, activeUrls = [];
@@ -37,27 +53,76 @@ function route() {
   const [path,query=''] = (location.hash.slice(1)||'/').split('?');
   const parts = path.split('/').filter(Boolean);
   const params = new URLSearchParams(query);
-  return { page: parts[0] || 'home', id: parts[1], section: params.get('section') || 'projects', oauth: params.get('oauth') };
+  if (parts[0] === 'showroom' && parts[1] && parts.length <= 3) {
+    return { page: parts[2] ? 'project' : 'home', showroomId: parts[1], id: parts[2] };
+  }
+  return { page: parts[0] || 'home', id: parts[1], section: params.get('section') || 'projects', oauth: params.get('oauth'), showroom: params.get('showroom') };
 }
-function header(page, profile = state.profile, ownProfile = true) {
-  const home=page==='home', auth=['signin','register','reset'].includes(page), editor=page==='studio';
-  const accountAction = account
-    ? '<button type="button" class="text-btn nav-account" data-action="signout">Sign out</button>'
-    : auth ? '' : '<a class="nav-link nav-account" href="#/signin">Sign in</a>';
-  const editingProject=editor && route().section==='projects' && account && (!route().id || state.projects.some(project => project.id === route().id && project.etag));
-  const project=state.projects.find(p=>p.id===route().id);
-  return `<header class="site-header"><nav class="nav-left" aria-label="Main navigation"><a class="nav-link" href="#/">${home?'':icon('back',14)}Projects</a>${!auth && !editor ? '<a class="nav-link" href="#/about">About <span class="nav-optional">& CV</span></a>' : ''}</nav><a class="wordmark" href="#/" aria-label="folio home">folio</a><div class="nav-right">${editor ? `${link('Preview','#/','','external')}${editingProject?'<button type="submit" form="project-form" class="btn primary header-save">Save changes</button>':''}` : page==='project' ? `<span class="owner-label">Preview</span>${link('Edit project',project?`#/studio/${project.id}`:'#/studio','nav-edit')}` : page==='about' ? `${profile.cvId?link('Download CV',publicCvUrl(profile.cvId,true),'nav-cv','download'):''}${account && ownProfile ? link('Edit CV','#/studio?section=profile','nav-edit') : ''}` : auth ? '' : home ? `<span class="owner-label">Your collection</span>${link('Add project','#/studio','nav-workspace','plus')}` : '<span class="nav-tagline">A thoughtful experience, in every state.</span>'}${accountAction}</div></header>`;
+function header(page, profile = state.profile, ownProfile = true, visitor = null) {
+  const auth = ['signin', 'register', 'reset'].includes(page);
+  const editor = page === 'studio';
+  const current = route();
+  const project = state.projects.find(item => item.id === current.id);
+  const collection = visitor ? showroomPath(visitor.id) : '#/';
+  const about = visitor ? visitor.profileId && `#/about/${encodeURIComponent(visitor.profileId)}?showroom=${encodeURIComponent(visitor.id)}` : '#/about';
+  const editingProject = editor && current.section === 'projects' && account && (!current.id || project?.etag);
+  const editableProject = page === 'project' && (visitor ? visitor.owner && visitor.projectId : account && project?.id);
+  const editId = visitor ? visitor.projectId : project?.id;
+  const canEditCv = page === 'about' && account && ownProfile;
+
+  return `<header class="site-header">
+    <a class="wordmark" href="${collection}" aria-label="folio home">folio</a>
+    <nav class="nav-left" aria-label="Main navigation">
+      ${link('Discover', visitor ? collection : '#/', 'nav-link')}
+      <a class="nav-link ${page === 'home' ? 'current' : ''}" href="${collection}">Showroom</a>
+      ${about ? `<a class="nav-link ${page === 'about' ? 'current' : ''}" href="${about}">About</a>` : ''}
+    </nav>
+    <div class="nav-right">
+      ${editor ? link('Preview', '#/', 'nav-secondary', 'external') : ''}
+      ${editingProject ? '<button type="submit" form="project-form" class="btn header-save">Save changes</button>' : ''}
+      ${editableProject ? link('Edit project', `#/studio/${encodeURIComponent(editId)}`, 'nav-secondary') : ''}
+      ${canEditCv ? link('Edit CV', '#/studio?section=profile', 'nav-secondary') : ''}
+      ${auth && page === 'signin' ? link('Create an account', '#/register', 'nav-secondary', 'external') : ''}
+      ${account
+        ? `${!editor ? link('My studio', '#/studio', 'nav-studio', 'external') : ''}
+          <button type="button" class="text-btn nav-account" data-action="signout">Sign out</button>`
+        : auth ? '' : link('Sign in', '#/signin', 'nav-studio')}
+    </div>
+  </header>`;
 }
-function footer(p = state.profile, showEditor = true) {
-  return `<footer class="site-footer"><a class="wordmark" href="#/">folio<span>®</span></a><span>© ${new Date().getFullYear()}${p.name?' '+e(p.name):' · Your space. Your work.'}</span><div>${p.github?`<a href="${e(p.github)}" target="_blank" rel="noopener noreferrer">GitHub ↗</a>`:''}${p.linkedin?`<a href="${e(p.linkedin)}" target="_blank" rel="noopener noreferrer">LinkedIn ↗</a>`:''}${p.email?`<a href="mailto:${e(p.email)}">Say hello ↗</a>`:showEditor?'<a href="#/studio?section=profile">Add contact details ↗</a>':''}<a href="#/states">System states</a></div></footer>`;
+
+function footer(visitor = null) {
+  return `<footer class="site-footer">
+    <a href="${visitor ? showroomPath(visitor.id) : '#/'}">folio / Built to be seen.</a>
+    <div>
+      ${account && ownerShowroomId && !visitor ? `<a href="${showroomPath(ownerShowroomId)}">View public showroom ↗</a>` : ''}
+      <span>© ${new Date().getFullYear()} folio</span>
+      ${button('Privacy', 'privacy', 'text-btn')} ${button('Terms', 'terms', 'text-btn')}
+    </div>
+  </footer>`;
 }
-function stateCard(kind) {
-  const info = { loading: ['01 / LOADING','Curating exhibition data...','Your collection is being prepared.','Preview loading','preview-loading'], maintenance: ['02 / TEMPORARILY UNAVAILABLE','Gallery Room under maintenance','This gallery room is taking a short break. Try opening it again.','Try again','retry'], empty: ['03 / FIRST VISIT','Blank gallery wall','Every collection begins with one piece. Give your first project a home.','Add your first project','add-project'] }[kind];
-  return `<section class="state-column"><p class="eyebrow">${info[0]}</p><div class="state-card ${kind}"><div class="state-illustration" aria-hidden="true">${kind==='loading'?'<div class="skeleton s-title"></div><div class="skeleton s-sub"></div><div class="skeleton s-art"></div><div class="skeleton s-text"></div>':`<div class="gallery-wall"><div class="wall-frame">${kind==='maintenance'?'<div class="wall-tape"></div><span>ROOM 503</span>':'<span>+</span>'}</div><span class="wall-floor"></span></div>`}</div><h2>${info[1]}</h2><p>${info[2]}</p>${button(info[3],info[4],kind==='empty'?'primary':'',kind==='empty'?'plus':'refresh')}</div></section>`;
+
+function stateCard(kind, action) {
+  const variants = {
+    loading: ['Loading', 'Good work is on its way.', 'Loading the latest projects. Just a moment.'],
+    maintenance: ['Temporarily unavailable', 'A brief intermission.', 'This page is temporarily unavailable. Try again in a moment.'],
+  };
+  const [label, title, description] = variants[kind];
+  const illustration = kind === 'loading'
+    ? '<div class="skeleton s-art"></div><div class="skeleton s-title"></div><div class="skeleton s-sub"></div>'
+    : `<span class="state-symbol">[ pause ]</span>`;
+  return `<section class="state-card ${kind}"><p class="eyebrow">${label}</p>
+    <div class="state-illustration" aria-hidden="true">${illustration}</div>
+    <h2>${title}</h2><p>${description}</p>${action || ''}</section>`;
 }
-function statesPage() {
-  return `<section class="states-page section-pad"><p class="eyebrow">THE IN-BETWEEN MATTERS, TOO</p><h1>Even the pauses, considered<span class="blue-dot">.</span></h1><p>Quiet loading. Clear recovery. An invitation to begin.</p><div class="states-grid">${['loading','maintenance','empty'].map(stateCard).join('')}</div><div class="state-footnote"><span>Quiet loading. Clear recovery. An invitation to begin.</span><span>FOLIO / EXPERIENCE STATES</span></div></section>`;
+
+function accessState() {
+  return `<section class="access-state"><div><p class="eyebrow">Access restricted</p><h2>This studio is private.</h2></div>
+    <p>Only the owner can make changes.</p>
+    ${link(account ? 'Go to my studio' : 'Sign in to your studio', account ? '#/studio' : '#/signin', '', 'arrow')}
+  </section>`;
 }
+
 const oauthMessages = new Map([
   ['unavailable', 'This sign-in provider is not configured.'],
   ['signin-required', 'Sign in before connecting a provider.'],
@@ -81,7 +146,7 @@ async function render() {
   let editorError = '';
   if (isEditing) {
     if (editorLoad?.id !== r.id) {
-      app.innerHTML = '<main class="initial-loading" id="main" tabindex="-1"><p role="status">Loading project…</p></main>';
+      app.innerHTML = `<main class="initial-loading section-pad" id="main" tabindex="-1" aria-busy="true" role="status">${stateCard('loading')}</main>`;
       editorLoad = { id: r.id, result: loadProject(r.id) };
     }
     try {
@@ -96,12 +161,46 @@ async function render() {
     }
   }
   let profile = state.profile;
+  let visitor = null;
+  let visitorIssue = '';
+  let projects = state.projects;
+  if (r.showroomId) {
+    const key = JSON.stringify([r.showroomId, r.id]);
+    if (visitorLoad?.key !== key) {
+      app.innerHTML = `<main class="initial-loading section-pad" id="main" tabindex="-1" role="status">${stateCard('loading')}</main>`;
+      visitorLoad = { key, result: loadShowroomView(r.showroomId, r.id) };
+    }
+    let data;
+    try { data = await visitorLoad.result; }
+    catch { visitorIssue = 'retry'; }
+    if (renderedHash !== location.hash) return;
+    visitor = { id: r.showroomId, profileId: data?.showroom.profileId,
+      owner: Boolean(account && ownerShowroomId === r.showroomId),
+      projectId: r.id && data?.projects[0]?.id };
+    projects = visitorProjects = data?.projects ?? [];
+    profile = data?.profile ?? emptyWorkspace().profile;
+    if (!data && !visitorIssue) visitorIssue = 'missing';
+  }
   let missingProfile = false;
+  let profileShowroom = null;
   const ownProfile = Boolean(account && (!r.id || r.id === state.profile.publicId));
   if (r.page === 'about' && r.id) {
-    if (aboutLoad?.id !== r.id) aboutLoad = { id: r.id, result: loadPublicProfile(r.id) };
+    if (aboutLoad?.key !== renderedHash) {
+      aboutLoad = {
+        key: renderedHash,
+        result: Promise.all([
+          loadPublicProfile(r.id),
+          r.showroom ? loadShowroom(r.showroom).catch(() => null) : null,
+        ]),
+      };
+    }
     try {
-      const saved = await aboutLoad.result;
+      const [saved, related] = await aboutLoad.result;
+      projects = [];
+      if (related?.showroom.profileId === r.id) {
+        profileShowroom = related.showroom;
+        projects = related.projects;
+      } else if (ownProfile) projects = state.projects;
       profile = saved ?? emptyWorkspace().profile;
       missingProfile = !saved;
     } catch (error) {
@@ -114,15 +213,34 @@ async function render() {
   }
   document.body.dataset.page=r.page;
   const oauthStatus = oauthMessages.get(r.oauth) ?? '';
-  const content = r.page==='home'?showroom(state,filter,featuredIndex):r.page==='project'?projectPage(state,r.id,projectTab,mediaIndex):r.page==='about'?(missingProfile ? '<section class="section-pad"><h1>Profile not found.</h1></section>'
-    : aboutPage({ profile }, aboutTab, ownProfile)):r.page==='studio'?(editorError
+  const viewState = { ...state, profile, projects };
+  const content = visitorIssue === 'retry'
+    ? `<section class="section-pad state-single"><h1 class="eyebrow">Showroom unavailable</h1>${stateCard('maintenance', button('Try again', 'reload-showroom'))}</section>`
+    : visitorIssue === 'missing' ? '<section class="section-pad"><h1>Showroom not found.</h1></section>'
+    : r.page==='home'?showroom(viewState,filter,featuredIndex,visitor):r.page==='project'?projectPage(viewState,r.id,projectTab,mediaIndex,visitor):r.page==='about'?(missingProfile ? '<section class="section-pad"><h1>Profile not found.</h1></section>'
+    : aboutPage({ profile, projects }, aboutTab, ownProfile, profileShowroom)):r.page==='studio'?(!account
+    ? `<div class="section-pad state-single"><h1 class="eyebrow">Project studio</h1>${accessState()}</div>`
+    : editorError
     ? `<section class="section-pad"><h1>Could not open project.</h1><p role="alert">${e(editorError)}</p>${button('Retry loading project','reload-project')}</section>`
-    : studio(state,r.id,r.section,account,oauthStatus,profileError)):['signin','register','reset'].includes(r.page)?authPage(r.page,oauthStatus):r.page==='states'?statesPage():`<section class="not-found section-pad"><p class="eyebrow">404 / A LITTLE OFF THE MAP</p><h1>Let’s head back to the gallery.</h1>${link('Explore the projects','#/','primary','arrow')}</section>`;
-  app.innerHTML = `${header(r.page, profile, ownProfile)}<main id="main" tabindex="-1">${workspaceError ? `<div class="section-pad" role="alert"><p>${e(workspaceError)}</p>${button('Retry loading projects','reload-projects')}</div>` : ''}${content}</main>${footer(profile, r.page !== 'about' || ownProfile)}`;
-  document.title=`${({home:'The collection',project:'Project experience',about:'Behind the projects',studio:'Your workspace',signin:'Sign in',register:'Create your gallery',reset:'Reset password',states:'The experience'})[r.page]||'Page not found'} — folio`;
+    : studio(state,r.id,r.section,account,oauthStatus,profileError,ownerShowroomId)):['signin','register','reset'].includes(r.page)?authPage(r.page,oauthStatus):`<section class="not-found section-pad"><p class="eyebrow">404 / A LITTLE OFF THE MAP</p><h1>Let’s head back to the gallery.</h1>${link('Explore the projects','#/','primary','arrow')}</section>`;
+  app.innerHTML = `${header(r.page, profile, ownProfile, visitor)}<main id="main" tabindex="-1">${workspaceError && !visitor ? `<div class="section-pad" role="alert"><p>${e(workspaceError)}</p>${button('Retry loading projects','reload-projects')}</div>` : ''}${content}</main>${footer(visitor)}`;
+  document.title=`${({home:'The collection',project:'Project experience',about:'Behind the projects',studio:'Your workspace',signin:'Sign in',register:'Create your gallery',reset:'Reset password'})[r.page]||'Page not found'} — folio`;
   dirty=false; pendingFiles=[]; removedFiles.clear();
   bindForms();
   for (const container of app.querySelectorAll('[data-media-id]')) {
+    if (visitor || profileShowroom) {
+      const id = container.dataset.mediaId;
+      const project = projects.find(item => item.media.some(file => file.id === id));
+      const file = project?.media.find(item => item.id === id);
+      if (!file) continue;
+      const element = document.createElement(file.type.startsWith('video/') ? 'video' : 'img');
+      element.addEventListener('error', () => { container.textContent = 'Media could not be loaded.'; }, { once: true });
+      if (element.tagName === 'VIDEO') element.controls = true;
+      else element.alt = file.name;
+      element.src = showroomFileUrl((visitor || profileShowroom).id, project.id, file.id);
+      container.append(element);
+      continue;
+    }
     try {
       const file = await repository.file(container.dataset.mediaId);
       if (!container.isConnected) break;
@@ -329,7 +447,7 @@ function downloadBlob(blob,name){const url=URL.createObjectURL(blob);const a=doc
 async function download(id,name){const file=await repository.file(id);if(!file)throw new Error('This file is unavailable. Add it again in your workspace.');downloadBlob(file,name||file.name);}
 
 async function changeFeatured(step, wrap = true) {
-  const count = state.projects.filter(project => project.published).length;
+  const count = featuredCount();
   if (count < 2) return;
   const current = featuredIndex % count;
   const next = wrap ? (current + step + count) % count : Math.max(0, Math.min(count - 1, current + step));
@@ -352,7 +470,7 @@ async function changeFeatured(step, wrap = true) {
 // Consume one deliberate wheel gesture per slide, then release page scrolling at either end.
 document.addEventListener('wheel', event => {
   if (event.ctrlKey || document.querySelector('#modal').open || !event.target.closest('.featured-project') || event.target.closest('video')) return;
-  const count = state.projects.filter(project => project.published).length;
+  const count = featuredCount();
   if (count < 2) return;
   const rawDelta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
   if (!rawDelta) return;
@@ -402,7 +520,7 @@ document.addEventListener('click',async event=>{
     if(target.dataset.filter){filter=target.dataset.filter;await render();document.querySelector('#collection').scrollIntoView({block:'start'});}
     if(target.dataset.projectTab){projectTab=target.dataset.projectTab;const y=scrollY;await render();scrollTo(0,y);document.querySelector(`[data-project-tab="${projectTab}"]`).focus({preventScroll:true});}
     if(target.dataset.aboutTab){aboutTab=target.dataset.aboutTab;const y=scrollY;await render();scrollTo(0,y);document.querySelector(`[data-about-tab="${aboutTab}"]`).focus({preventScroll:true});}
-    if(target.dataset.mediaIndex!==undefined){mediaIndex=Number(target.dataset.mediaIndex);const y=scrollY;await render();scrollTo(0,y);const art=document.querySelector('.project-stage .mockup');if(art)art.dataset.view=mediaIndex;}
+    if(target.dataset.mediaIndex!==undefined){mediaIndex=Number(target.dataset.mediaIndex);const y=scrollY;await render();scrollTo(0,y);}
     if(target.dataset.studioSection){if(dirty){confirmAction('Leave without saving?','Your unsaved edits will be discarded.','Leave page',()=>{dirty=false;location.hash=`/studio?section=${target.dataset.studioSection}`;});}else location.hash=`/studio?section=${target.dataset.studioSection}`;}
     if(target.dataset.download) await download(target.dataset.download,target.dataset.filename);
     if(target.dataset.removePending){pendingFiles=pendingFiles.filter(f=>f.id!==target.dataset.removePending);target.closest('[data-file-row]')?.remove();renderPending();dirty=true;}
@@ -416,6 +534,7 @@ document.addEventListener('click',async event=>{
         await signOut();
         account = null;
         state = repository.reset();
+        ownerShowroomId = null;
         dirty = false;
         workspaceError = '';
         location.hash = '/signin';
@@ -444,13 +563,14 @@ document.addEventListener('click',async event=>{
         } finally { savingProject = false; }
       });
     }
+    if (action === 'reload-showroom') { visitorLoad = undefined; await render(); }
     if (action === 'reload-project') { editorLoad = undefined; await render(); }
     if(action==='add-project')location.hash='/studio';
     if(action==='reload-profile'){await loadProfile();await render();}
     if(action==='reload-projects'){await loadWorkspace();await render();}
-    if(action==='retry'){await loadWorkspace();location.hash='/';await render();}
-    if(action==='preview-loading'){modal('Curating your collection',`<div class="loading-preview"><div class="loading-bar"></div><p role="status">Preparing your gallery…</p></div>`);setTimeout(()=>{document.querySelector('#modal').close();notify('Your gallery is ready.');},1600);}
-    if(action==='terms')modal('Terms of use','<p>This portfolio currently runs as a frontend preview. Service terms will appear here before online accounts and publishing become available.</p>');
+    if (action === 'terms') {
+      modal('Using Folio', '<p>Use your account to manage your projects and publish them in your showroom. Visitors can view your published projects, saved profile information, and any CV you upload.</p>');
+    }
     if(action==='privacy')modal('Your privacy','<p>Projects and their files are saved to your account. Saved profile fields and CVs are publicly visible. Default download preferences remain temporary previews. A session cookie keeps you signed in across reloads.</p>');
     if(target.closest('#modal') && target.tagName==='A')document.querySelector('#modal').close();
   }catch(error){notify(error.message||'Something went wrong. Please try again.');}
@@ -468,6 +588,8 @@ window.addEventListener('hashchange',async()=>{
   if(dirty){const nextHash=location.hash;history.replaceState(null,'',previousHash||'#/');confirmAction('Leave without saving?','Your unsaved edits will be discarded.','Leave page',()=>{dirty=false;location.hash=nextHash;});return;}
   aboutLoad = undefined;
   editorLoad = undefined;
+  visitorLoad = undefined;
+  if (route().showroomId) { featuredIndex = 0; filter = 'all'; }
   previousHash=location.hash;projectTab='specs';mediaIndex=0;await render();window.scrollTo(0,0);document.querySelector('#main').focus({preventScroll:true});
 });
 window.addEventListener('beforeunload',event=>{if(dirty){event.preventDefault();event.returnValue='';}});
