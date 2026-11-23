@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
 import { describeDatabaseError } from './errors.js';
 
@@ -14,6 +15,12 @@ const projectSelect = `SELECT p.id, p.owner_id AS "ownerId", p.title, p.type,
    FROM portfolio.project_files f WHERE f.project_id = p.id AND f.kind = 'build') AS build
   FROM portfolio.projects p`;
 
+const profileSelect = `SELECT p.public_id AS "publicId", p.fields,
+  CASE WHEN a.owner_id IS NOT NULL THEN json_build_object(
+    'key', a.object_key, 'name', a.filename, 'size', a.size
+  ) END AS attachment
+  FROM portfolio.profiles p LEFT JOIN portfolio.cv_attachments a USING (owner_id)`;
+
 export async function openDatabase(config) {
   const pool = new Pool(config);
   pool.on('error', () => console.error('An idle PostgreSQL connection failed.'));
@@ -24,6 +31,7 @@ export async function openDatabase(config) {
     await pool.query('SELECT id, owner_id FROM portfolio.projects LIMIT 0');
     await pool.query('SELECT project_id FROM portfolio.project_notes LIMIT 0');
     await pool.query('SELECT id, project_id FROM portfolio.project_files LIMIT 0');
+    await pool.query(`${profileSelect} LIMIT 0`);
   } catch (error) {
     await pool.end();
     throw new Error(`Unable to connect to PostgreSQL or find the application tables. Run pending migrations. ${describeDatabaseError(error)}`);
@@ -35,6 +43,52 @@ export async function openDatabase(config) {
   }
 
   return {
+    findOwnerProfile(ownerId) {
+      return first(`${profileSelect} WHERE p.owner_id = $1`, [ownerId]);
+    },
+    findPublicProfile(publicId) {
+      return first(`${profileSelect} WHERE p.public_id = $1`, [publicId]);
+    },
+    async saveProfile(ownerId, fields, change) {
+      const client = await pool.connect();
+      let committing = false;
+      try {
+        await client.query('BEGIN');
+        // The upsert holds the owner row lock until the attachment change commits.
+        await client.query(
+          `INSERT INTO portfolio.profiles (owner_id, public_id, fields) VALUES ($1, $2, $3)
+           ON CONFLICT (owner_id) DO UPDATE SET fields = EXCLUDED.fields`,
+          [ownerId, randomUUID(), fields],
+        );
+        let retiredKey;
+        if (change) {
+          const { rows: [previous] } = await client.query(
+            'SELECT object_key FROM portfolio.cv_attachments WHERE owner_id = $1', [ownerId],
+          );
+          retiredKey = previous?.object_key;
+          if (change.remove) {
+            await client.query('DELETE FROM portfolio.cv_attachments WHERE owner_id = $1', [ownerId]);
+          } else {
+            await client.query(
+              `INSERT INTO portfolio.cv_attachments (owner_id, object_key, filename, size)
+               VALUES ($1, $2, $3, $4) ON CONFLICT (owner_id) DO UPDATE
+               SET object_key = EXCLUDED.object_key, filename = EXCLUDED.filename, size = EXCLUDED.size`,
+              [ownerId, change.key, change.name, change.size],
+            );
+          }
+        }
+        const { rows: [profile] } = await client.query(`${profileSelect} WHERE p.owner_id = $1`, [ownerId]);
+        committing = true;
+        await client.query('COMMIT');
+        return { profile, retiredKey };
+      } catch (error) {
+        if (committing) error.commitUncertain = true;
+        await client.query('ROLLBACK').catch(() => {});
+        throw error;
+      } finally {
+        client.release();
+      }
+    },
     close: () => pool.end(),
     async createProject(project) {
       const client = await pool.connect();

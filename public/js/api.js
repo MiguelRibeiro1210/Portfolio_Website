@@ -1,4 +1,4 @@
-// Projects use the authenticated backend. Profile/CV/preferences remain temporary previews.
+// Projects and CV data use the backend. Download preferences are preview state.
 const initial = () => ({ projects: [], profile: { name: '', role: '', location: '', summary: '', experience: '', education: '', skills: '', email: '', github: '', linkedin: '', cvId: '', cvName: '' }, settings: { permission: 'request' } });
 let workspace = initial();
 let previewFiles = new Map();
@@ -97,7 +97,7 @@ async function authorizedFetch(path, options = {}) {
     const user = await restoreSession();
     if (!user) {
       globalThis.dispatchEvent?.(new Event('session-ended'));
-      throw new Error('Your session has ended. Sign in before saving your project.');
+      throw new Error('Your session has ended. Sign in to continue.');
     }
     response = await request();
   }
@@ -135,4 +135,37 @@ export async function signOut() {
     if (!response.ok) throw new Error('Could not sign out. Please try again.');
     accessToken = null;
   });
+}
+
+function profileView(profile) {
+  const { attachment, ...fields } = profile ?? {};
+  return {
+    ...initial().profile, ...fields,
+    cvId: attachment ? fields.publicId : '',
+    cvName: attachment?.name ?? '',
+  };
+}
+
+async function profileRequest(path, options, request = authorizedFetch) {
+  const response = await request(path, options);
+  if (request === fetch && response.status === 404) return null;
+  const result = await response.json().catch(() => null);
+  if (!response.ok || !result) throw new Error(result?.message || 'Could not load or save the profile.');
+  return profileView(result.profile);
+}
+
+export function loadOwnerProfile() {
+  return profileRequest('/api/profile/me');
+}
+
+export function saveOwnerProfile(body) {
+  return profileRequest('/api/profile/me', { method: 'PUT', body });
+}
+
+export function loadPublicProfile(id) {
+  return profileRequest(`/api/profiles/${encodeURIComponent(id)}`, undefined, fetch);
+}
+
+export function publicCvUrl(id, download = false) {
+  return `/api/profiles/${encodeURIComponent(id)}/cv${download ? '?download=1' : ''}`;
 }

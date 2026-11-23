@@ -1,4 +1,4 @@
-import { repository, emptyWorkspace, registerAccount, signIn, restoreSession, signOut, createProject } from './api.js';
+import { repository, emptyWorkspace, registerAccount, signIn, restoreSession, signOut, createProject, loadOwnerProfile, saveOwnerProfile, loadPublicProfile, publicCvUrl } from './api.js';
 import { showroom, projectPage, studio } from './project.js';
 import { aboutPage } from './cv.js';
 import { authPage } from './auth.js';
@@ -7,7 +7,14 @@ import { escapeHTML as e, icon, link, button, notify, modal, confirmAction } fro
 let state = emptyWorkspace();
 let account = null;
 let featuredIndex = 0;
-let savingProject = false, workspaceError = '';
+let savingProject = false, savingProfile = false, workspaceError = '', profileError = '';
+let aboutLoad;
+async function loadProfile() {
+  profileError = '';
+  try { state.profile = await loadOwnerProfile(); }
+  catch (error) { profileError = error.message; }
+}
+
 async function loadWorkspace() {
   try { state = await repository.load(); workspaceError = ''; }
   catch (error) { workspaceError = error.message; }
@@ -26,18 +33,17 @@ function route() {
   const params = new URLSearchParams(query);
   return { page: parts[0] || 'home', id: parts[1], section: params.get('section') || 'projects', oauth: params.get('oauth') };
 }
-function header(page) {
+function header(page, profile = state.profile, ownProfile = true) {
   const home=page==='home', auth=['signin','register','reset'].includes(page), editor=page==='studio';
   const accountAction = account
     ? '<button type="button" class="text-btn nav-account" data-action="signout">Sign out</button>'
     : auth ? '' : '<a class="nav-link nav-account" href="#/signin">Sign in</a>';
   const editingProject=editor && route().section==='projects' && !route().id && account;
   const project=state.projects.find(p=>p.id===route().id);
-  return `<header class="site-header"><nav class="nav-left" aria-label="Main navigation"><a class="nav-link" href="#/">${home?'':icon('back',14)}Projects</a>${!auth && !editor ? '<a class="nav-link" href="#/about">About <span class="nav-optional">& CV</span></a>' : ''}</nav><a class="wordmark" href="#/" aria-label="folio home">folio</a><div class="nav-right">${editor ? `${link('Preview','#/','','external')}${editingProject?'<button type="submit" form="project-form" class="btn primary header-save">Save changes</button>':''}` : page==='project' ? `<span class="owner-label">Preview</span>${link('Edit project',project?`#/studio/${project.id}`:'#/studio','nav-edit')}` : page==='about' ? `${state.profile.cvId?button('Download CV','download-cv','nav-cv','download'):''}${link('Edit CV','#/studio?section=profile','nav-edit')}` : auth ? '' : home ? `<span class="owner-label">Your collection</span>${link('Add project','#/studio','nav-workspace','plus')}` : '<span class="nav-tagline">A thoughtful experience, in every state.</span>'}${accountAction}</div></header>`;
+  return `<header class="site-header"><nav class="nav-left" aria-label="Main navigation"><a class="nav-link" href="#/">${home?'':icon('back',14)}Projects</a>${!auth && !editor ? '<a class="nav-link" href="#/about">About <span class="nav-optional">& CV</span></a>' : ''}</nav><a class="wordmark" href="#/" aria-label="folio home">folio</a><div class="nav-right">${editor ? `${link('Preview','#/','','external')}${editingProject?'<button type="submit" form="project-form" class="btn primary header-save">Save changes</button>':''}` : page==='project' ? `<span class="owner-label">Preview</span>${link('Edit project',project?`#/studio/${project.id}`:'#/studio','nav-edit')}` : page==='about' ? `${profile.cvId?link('Download CV',publicCvUrl(profile.cvId,true),'nav-cv','download'):''}${account && ownProfile ? link('Edit CV','#/studio?section=profile','nav-edit') : ''}` : auth ? '' : home ? `<span class="owner-label">Your collection</span>${link('Add project','#/studio','nav-workspace','plus')}` : '<span class="nav-tagline">A thoughtful experience, in every state.</span>'}${accountAction}</div></header>`;
 }
-function footer() {
-  const p=state.profile;
-  return `<footer class="site-footer"><a class="wordmark" href="#/">folio<span>®</span></a><span>© ${new Date().getFullYear()}${p.name?' '+e(p.name):' · Your space. Your work.'}</span><div>${p.github?`<a href="${e(p.github)}" target="_blank" rel="noopener noreferrer">GitHub ↗</a>`:''}${p.linkedin?`<a href="${e(p.linkedin)}" target="_blank" rel="noopener noreferrer">LinkedIn ↗</a>`:''}${p.email?`<a href="mailto:${e(p.email)}">Say hello ↗</a>`:'<a href="#/studio?section=profile">Add contact details ↗</a>'}<a href="#/states">System states</a></div></footer>`;
+function footer(p = state.profile, showEditor = true) {
+  return `<footer class="site-footer"><a class="wordmark" href="#/">folio<span>®</span></a><span>© ${new Date().getFullYear()}${p.name?' '+e(p.name):' · Your space. Your work.'}</span><div>${p.github?`<a href="${e(p.github)}" target="_blank" rel="noopener noreferrer">GitHub ↗</a>`:''}${p.linkedin?`<a href="${e(p.linkedin)}" target="_blank" rel="noopener noreferrer">LinkedIn ↗</a>`:''}${p.email?`<a href="mailto:${e(p.email)}">Say hello ↗</a>`:showEditor?'<a href="#/studio?section=profile">Add contact details ↗</a>':''}<a href="#/states">System states</a></div></footer>`;
 }
 function stateCard(kind) {
   const info = { loading: ['01 / LOADING','Curating exhibition data...','Your collection is being prepared.','Preview loading','preview-loading'], maintenance: ['02 / TEMPORARILY UNAVAILABLE','Gallery Room under maintenance','This gallery room is taking a short break. Try opening it again.','Try again','retry'], empty: ['03 / FIRST VISIT','Blank gallery wall','Every collection begins with one piece. Give your first project a home.','Add your first project','add-project'] }[kind];
@@ -64,10 +70,29 @@ async function render() {
     previousHash = location.hash;
   }
   const r=route();
+  const renderedHash = location.hash;
+  let profile = state.profile;
+  let missingProfile = false;
+  const ownProfile = Boolean(account && (!r.id || r.id === state.profile.publicId));
+  if (r.page === 'about' && r.id) {
+    if (aboutLoad?.id !== r.id) aboutLoad = { id: r.id, result: loadPublicProfile(r.id) };
+    try {
+      const saved = await aboutLoad.result;
+      profile = saved ?? emptyWorkspace().profile;
+      missingProfile = !saved;
+    } catch (error) {
+      aboutLoad = undefined;
+      profile = emptyWorkspace().profile;
+      missingProfile = true;
+      notify(error.message);
+    }
+    if (renderedHash !== location.hash) return;
+  }
   document.body.dataset.page=r.page;
   const oauthStatus = oauthMessages.get(r.oauth) ?? '';
-  const content = r.page==='home'?showroom(state,filter,featuredIndex):r.page==='project'?projectPage(state,r.id,projectTab,mediaIndex):r.page==='about'?aboutPage(state,aboutTab):r.page==='studio'?studio(state,r.id,r.section,account,oauthStatus):['signin','register','reset'].includes(r.page)?authPage(r.page,oauthStatus):r.page==='states'?statesPage():`<section class="not-found section-pad"><p class="eyebrow">404 / A LITTLE OFF THE MAP</p><h1>Let’s head back to the gallery.</h1>${link('Explore the projects','#/','primary','arrow')}</section>`;
-  app.innerHTML = `${header(r.page)}<main id="main" tabindex="-1">${workspaceError ? `<div class="section-pad" role="alert"><p>${e(workspaceError)}</p>${button('Retry loading projects','reload-projects')}</div>` : ''}${content}</main>${footer()}`;
+  const content = r.page==='home'?showroom(state,filter,featuredIndex):r.page==='project'?projectPage(state,r.id,projectTab,mediaIndex):r.page==='about'?(missingProfile ? '<section class="section-pad"><h1>Profile not found.</h1></section>'
+    : aboutPage({ profile }, aboutTab, ownProfile)):r.page==='studio'?studio(state,r.id,r.section,account,oauthStatus,profileError):['signin','register','reset'].includes(r.page)?authPage(r.page,oauthStatus):r.page==='states'?statesPage():`<section class="not-found section-pad"><p class="eyebrow">404 / A LITTLE OFF THE MAP</p><h1>Let’s head back to the gallery.</h1>${link('Explore the projects','#/','primary','arrow')}</section>`;
+  app.innerHTML = `${header(r.page, profile, ownProfile)}<main id="main" tabindex="-1">${workspaceError ? `<div class="section-pad" role="alert"><p>${e(workspaceError)}</p>${button('Retry loading projects','reload-projects')}</div>` : ''}${content}</main>${footer(profile, r.page !== 'about' || ownProfile)}`;
   document.title=`${({home:'The collection',project:'Project experience',about:'Behind the projects',studio:'Your workspace',signin:'Sign in',register:'Create your gallery',reset:'Reset password',states:'The experience'})[r.page]||'Page not found'} — folio`;
   dirty=false; pendingFiles=[]; removedFiles.clear();
   bindForms();
@@ -117,21 +142,26 @@ function bindForms() {
   const profileForm=document.querySelector('#profile-form');
   if(profileForm) {
     profileForm.oninput=()=>{dirty=true;}; profileForm.onchange=()=>{dirty=true;};
-    profileForm.onsubmit=async event=>{
-      event.preventDefault(); const submit=event.submitter; submit.disabled=true;
+    profileForm.onsubmit = async event => {
+      event.preventDefault();
+      if (savingProfile) return;
+      const submit = event.submitter;
+      submit.disabled = true;
+      savingProfile = true;
       try {
-        const form = new FormData(profileForm); const next=structuredClone(state); const files=[]; const remove=[];
-        for(const key of ['name','role','location','summary','experience','education','skills','email','github','linkedin']) next.profile[key]=String(form.get(key)||'').trim();
-        for(const key of ['github','linkedin']) if(next.profile[key] && !safeUrl(next.profile[key])) throw new Error('Social links must use https:// or http://.');
-        const cv=form.get('cv');
-        if(cv?.size) {
-          if(cv.type!=='application/pdf' || cv.size>10*1024*1024) throw new Error('Choose a PDF up to 10 MB.');
-          if(next.profile.cvId) remove.push(next.profile.cvId);
-          next.profile.cvId=crypto.randomUUID();next.profile.cvName=cv.name;files.push({id:next.profile.cvId,file:cv});
-        }
-        if(form.get('removeCv')) {if(next.profile.cvId)remove.push(next.profile.cvId);next.profile.cvId='';next.profile.cvName='';files.length=0;}
-        await updatePreview(next,files,remove);notify('Profile updated for this preview.');await render();
-      }catch(error){notify(error.message);}finally{submit.disabled=false;}
+        const form = new FormData(profileForm);
+        if (!form.get('cv')?.name) form.delete('cv');
+        if (form.get('cv')?.size > 10 * 1024 * 1024) throw new Error('Choose a PDF up to 10 MiB.');
+        state.profile = await saveOwnerProfile(form);
+        aboutLoad = undefined;
+        dirty = false;
+        notify('Profile saved.');
+        await render();
+      } catch (error) { notify(error.message); }
+      finally {
+        savingProfile = false;
+        submit.disabled = false;
+      }
     };
   }
   const authForm=document.querySelector('#auth-form');
@@ -173,6 +203,7 @@ function bindForms() {
       account = await signIn(Object.fromEntries(new FormData(authForm)));
       state = repository.reset();
       await loadWorkspace();
+      await loadProfile();
       if (route().page === 'signin') location.hash = '/';
       else await render();
     } catch (error) {
@@ -310,6 +341,7 @@ document.addEventListener('click',async event=>{
     if(target.dataset.reorder){const row=target.closest('[data-file-row]');const sibling=Number(target.dataset.direction)<0?row.previousElementSibling:row.nextElementSibling;if(sibling){Number(target.dataset.direction)<0?sibling.before(row):sibling.after(row);dirty=true;const rows=Array.from(row.parentElement.children);rows.forEach((el,i)=>{el.querySelector('[data-direction="-1"]').disabled=i===0;el.querySelector('[data-direction="1"]').disabled=i===rows.length-1;});}}
     const action=target.dataset.action;
     if (action === 'signout') {
+      if (savingProfile) return;
       target.disabled = true;
       try {
         await signOut();
@@ -327,13 +359,13 @@ document.addEventListener('click',async event=>{
     if(action==='view-gallery')document.querySelector('.project-stage')?.scrollIntoView({behavior:'smooth',block:'center'});
     if(action==='reset-filter'){filter='all';await render();document.querySelector('#collection').scrollIntoView();}
     if(action==='toggle-password'){const input=document.querySelector('#password');const show=input.type==='password';input.type=show?'text':'password';target.textContent=show?'Hide':'Show';target.setAttribute('aria-pressed',String(show));}
-    if(action==='download-cv'){if(state.profile.cvId)await download(state.profile.cvId,state.profile.cvName);else notify('Add a PDF in Profile & CV first.');}
     if(action==='add-project')location.hash='/studio';
+    if(action==='reload-profile'){await loadProfile();await render();}
     if(action==='reload-projects'){await loadWorkspace();await render();}
     if(action==='retry'){await loadWorkspace();location.hash='/';await render();}
     if(action==='preview-loading'){modal('Curating your collection',`<div class="loading-preview"><div class="loading-bar"></div><p role="status">Preparing your gallery…</p></div>`);setTimeout(()=>{document.querySelector('#modal').close();notify('Your gallery is ready.');},1600);}
     if(action==='terms')modal('Terms of use','<p>This portfolio currently runs as a frontend preview. Service terms will appear here before online accounts and publishing become available.</p>');
-    if(action==='privacy')modal('Your privacy','<p>Projects and their files are saved to your account. Profile, CV, and default download preferences remain temporary previews. A session cookie keeps you signed in across reloads.</p>');
+    if(action==='privacy')modal('Your privacy','<p>Projects and their files are saved to your account. Saved profile fields and CVs are publicly visible. Default download preferences remain temporary previews. A session cookie keeps you signed in across reloads.</p>');
     if(target.closest('#modal') && target.tagName==='A')document.querySelector('#modal').close();
   }catch(error){notify(error.message||'Something went wrong. Please try again.');}
 });
@@ -346,15 +378,19 @@ document.addEventListener('keydown',event=>{
 });
 let previousHash=location.hash;
 window.addEventListener('hashchange',async()=>{
-  if(savingProject){history.replaceState(null,'',previousHash);return;}
+  if(savingProject || savingProfile){history.replaceState(null,'',previousHash);return;}
   if(dirty){const nextHash=location.hash;history.replaceState(null,'',previousHash||'#/');confirmAction('Leave without saving?','Your unsaved edits will be discarded.','Leave page',()=>{dirty=false;location.hash=nextHash;});return;}
+  aboutLoad = undefined;
   previousHash=location.hash;projectTab='specs';mediaIndex=0;await render();window.scrollTo(0,0);document.querySelector('#main').focus({preventScroll:true});
 });
 window.addEventListener('beforeunload',event=>{if(dirty){event.preventDefault();event.returnValue='';}});
 app.innerHTML='<main class="initial-loading"><span class="wordmark">folio</span><div class="loading-bar"></div><p>Making room for your work…</p></main>';
 try {
   account = await restoreSession();
-  if (account) await loadWorkspace();
+  if (account) {
+    await loadWorkspace();
+    await loadProfile();
+  }
 } catch {
   notify('Could not restore your session. Please sign in again.');
 }

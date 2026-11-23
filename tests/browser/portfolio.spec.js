@@ -1,3 +1,4 @@
+import { samplePdf } from '../cv-fixture.js';
 import { randomUUID } from 'node:crypto';
 import { test, expect } from '@playwright/test';
 
@@ -242,7 +243,8 @@ test('a failed submission retains fields and files and can be retried',async ({p
   await page.getByRole('button',{name:'Save changes'}).last().click();
   await expect(page.locator('.draft-chip.active')).toContainText('Retry project');
 });
-test('profile placeholders become real content and CV downloads work',async ({page})=>{
+test('profile saves once, persists after reload, and visitors can download the CV',async ({page, browser})=>{
+  await ensureSignedIn(page);
   await navigate(page,'/about');
   await expect(page.getByText('Your name', {exact:true})).toBeVisible();
   await expect(page.locator('img')).toHaveCount(0);
@@ -252,9 +254,22 @@ test('profile placeholders become real content and CV downloads work',async ({pa
   await page.getByLabel('About',{exact:true}).fill('An introduction written by the user.');
   await page.getByLabel('Skills',{exact:true}).fill('JavaScript, CSS');
   await page.getByLabel('Contact email').fill('maker@example.com');
-  await page.getByLabel('Add or replace PDF').setInputFiles({name:'my-cv.pdf',mimeType:'application/pdf',buffer:Buffer.from('%PDF-1.4\n%%EOF')});
+  await page.getByLabel('Add or replace PDF').setInputFiles({name:'my-cv.pdf',mimeType:'application/pdf',buffer:samplePdf()});
+  const saves = [];
+  page.on('request', request => { if (request.method() === 'PUT') saves.push(new URL(request.url()).pathname); });
   await page.getByRole('button',{name:'Save profile'}).click();
-  await expect(page.getByText('Profile updated for this preview.')).toBeVisible();
+  await expect(page.getByText('Profile saved.')).toBeVisible();
+  expect(saves).toEqual(['/api/profile/me']);
+  const publicLink = await page.getByRole('link', { name: 'View public profile' }).getAttribute('href');
+  await page.reload();
+  await expect(page.getByLabel('Name', { exact: true })).toHaveValue('Test Maker');
+  const visitor = await browser.newPage();
+  try {
+    await visitor.goto(new URL(publicLink, page.url()).href);
+    await expect(visitor.getByRole('heading', { name: 'Test Maker' })).toBeVisible();
+    await expect(visitor.getByRole('link', { name: 'Edit CV' })).toHaveCount(0);
+    await expect(visitor.getByRole('link', { name: 'Preview CV' })).toBeVisible();
+  } finally { await visitor.close(); }
   await navigate(page,'/about');
   await expect(page.getByRole('heading',{name:'Test Maker'})).toBeVisible();
   await expect(page.getByRole('tabpanel')).toContainText('An introduction written by the user.');
@@ -263,7 +278,7 @@ test('profile placeholders become real content and CV downloads work',async ({pa
   await page.getByRole('tab',{name:'Contact',exact:true}).click();
   await expect(page.getByRole('tabpanel').getByRole('link')).toHaveAttribute('href','mailto:maker@example.com');
   const download=page.waitForEvent('download');
-  await page.getByRole('button',{name:'Download CV'}).first().click();
+  await page.getByRole('link',{name:'Download CV'}).first().click();
   expect((await download).suggestedFilename()).toBe('my-cv.pdf');
   await navigate(page,'/'); await navigate(page,'/about');
   await expect(page.getByRole('heading',{name:'Test Maker'})).toBeVisible();

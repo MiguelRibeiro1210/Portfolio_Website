@@ -4,12 +4,14 @@ import { join } from 'node:path';
 import { createFileStorage } from '../src/services/fileStorageService.js';
 import { loadEnvironment } from '../src/config/env.js';
 import { createAppServer } from '../src/server.js';
+import { memoryCvStorage } from './cv-fixture.js';
 import { openTestDatabase } from './postgres-fixture.js';
 
 loadEnvironment();
 const fixture = process.env.TEST_DATABASE_URL ? await openTestDatabase() : null;
 const uploads = await mkdtemp(join(tmpdir(), 'folio-browser-uploads-'));
 const server = createAppServer({
+  cvStorage: memoryCvStorage(),
   projectStorage: createFileStorage(uploads),
   databaseConfig: fixture?.config,
   oauthConfig: {},
