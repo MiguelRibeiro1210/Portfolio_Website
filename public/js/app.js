@@ -65,7 +65,6 @@ function header(page, profile = state.profile, ownProfile = true, visitor = null
   const project = state.projects.find(item => item.id === current.id);
   const collection = visitor ? showroomPath(visitor.id) : '#/';
   const about = visitor ? visitor.profileId && `#/about/${encodeURIComponent(visitor.profileId)}?showroom=${encodeURIComponent(visitor.id)}` : '#/about';
-  const editingProject = editor && current.section === 'projects' && account && (!current.id || project?.etag);
   const editableProject = page === 'project' && (visitor ? visitor.owner && visitor.projectId : account && project?.id);
   const editId = visitor ? visitor.projectId : project?.id;
   const canEditCv = page === 'about' && account && ownProfile;
@@ -79,7 +78,6 @@ function header(page, profile = state.profile, ownProfile = true, visitor = null
     </nav>
     <div class="nav-right">
       ${editor ? link('Preview', '#/', 'nav-secondary', 'external') : ''}
-      ${editingProject ? '<button type="submit" form="project-form" class="btn header-save">Save changes</button>' : ''}
       ${editableProject ? link('Edit project', `#/studio/${encodeURIComponent(editId)}`, 'nav-secondary') : ''}
       ${canEditCv ? link('Edit CV', '#/studio?section=profile', 'nav-secondary') : ''}
       ${auth && page === 'signin' ? link('Create an account', '#/register', 'nav-secondary', 'external') : ''}
@@ -378,10 +376,10 @@ async function saveProject(event) {
   const current = state.projects.find(project => project.id === id);
   if (id && !current?.etag) { notify('Reload this project before saving.'); return; }
   const formElement = event.target;
-  const buttons = [...document.querySelectorAll('button[type="submit"][form="project-form"], #project-form button[type="submit"]')];
+  const submitButton = formElement.querySelector('button[type="submit"]');
   savingProject = true;
   formElement.inert = true;
-  buttons.forEach(button => { button.disabled = true; });
+  submitButton.disabled = true;
   try {
     const form = new FormData(formElement);
     const p = Object.fromEntries(['title','type','description','stack','story','compatibility','source','releaseNotes','permission'].map(key=>[key,String(form.get(key)||'').trim()]));
@@ -416,7 +414,7 @@ async function saveProject(event) {
   } finally {
     savingProject = false;
     formElement.inert = false;
-    buttons.forEach(button => { button.disabled = false; });
+    submitButton.disabled = false;
   }
 }
 
