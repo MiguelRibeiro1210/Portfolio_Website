@@ -331,9 +331,16 @@ test('profile saves once, persists after reload, and visitors can download the C
   await expect(page.getByRole('tabpanel')).toContainText('JavaScript');
   await page.getByRole('tab',{name:'Contact',exact:true}).click();
   await expect(page.getByRole('tabpanel').getByRole('link')).toHaveAttribute('href','mailto:maker@example.com');
-  const download=page.waitForEvent('download');
-  await page.getByRole('link',{name:'Download CV'}).first().click();
-  expect((await download).suggestedFilename()).toBe('my-cv.pdf');
+  const downloadLink = page.getByRole('link', { name: 'Download CV', exact: true });
+  const href = await downloadLink.getAttribute('href');
+  expect(href).toMatch(/^\/api\/profiles\/[^/]+\/cv\?download=1$/);
+  const downloadUrl = new URL(href, page.url()).href;
+  // Browsers without inline PDF support can also download the iframe preview.
+  const [download] = await Promise.all([
+    page.waitForEvent('download', event => event.url() === downloadUrl),
+    downloadLink.click(),
+  ]);
+  expect(download.suggestedFilename()).toBe('my-cv.pdf');
   await navigate(page,'/'); await navigate(page,'/about');
   await expect(page.getByRole('heading',{name:'Test Maker'})).toBeVisible();
   await expect(page.locator('img')).toHaveCount(0);
