@@ -46,7 +46,7 @@ async function saveProject(page,{title='A real project',type='open',permission='
   await page.locator('#media-input').setInputFiles({ name: 'project.png', mimeType: 'image/png', buffer: image });
   await page.getByLabel('Download permission').selectOption(permission);
   await page.getByLabel('Show in the collection').check();
-  await page.getByRole('button',{name:'Save changes'}).last().click();
+  await page.getByRole('button',{name:'Save changes'}).click();
   await expect(page).toHaveURL(/#\/studio\/[\w-]+$/);
   await expect(page.locator('.draft-chip.active')).toContainText(title);
   return page.url().split('/studio/')[1];
@@ -111,7 +111,7 @@ test('edit a saved project, keep and reorder its media, then confirm deletion', 
   await page.locator('#media-input').setInputFiles({ name: 'added.png', mimeType: 'image/png', buffer: image });
   await page.getByRole('button', { name: 'Move added.png earlier' }).click();
   const update = page.waitForResponse(response => response.request().method() === 'PUT' && response.url().endsWith(`/api/projects/${id}`));
-  await page.getByRole('button', { name: 'Save changes' }).last().click();
+  await page.getByRole('button', { name: 'Save changes' }).click();
   expect((await update).status()).toBe(200);
   await page.reload();
   await expect(page.getByLabel('Project title')).toHaveValue('Updated project');
@@ -242,7 +242,7 @@ test('optional notes and build are saved with ordered gallery media and owner do
   await page.getByLabel('Release notes',{exact:true}).fill('First release.');
   await page.locator('#media-input').setInputFiles([{name:'first.png',mimeType:'image/png',buffer:image},{name:'second.png',mimeType:'image/png',buffer:image}]);
   await page.locator('#build-input').setInputFiles({name:'release.zip',mimeType:'application/zip',buffer:archive});
-  await page.getByRole('button',{name:'Save changes'}).last().click();
+  await page.getByRole('button',{name:'Save changes'}).click();
   await expect(page).toHaveURL(/#\/studio\/[\w-]+$/);
   const id=page.url().split('/studio/')[1];
   await page.reload();
@@ -272,7 +272,7 @@ test('drafts stay in the studio and cancelling does not create a project',async 
   await page.getByLabel('Tech stack').fill('CSS');
   await page.locator('#media-input').setInputFiles({name:'draft.png',mimeType:'image/png',buffer:image});
   await page.getByLabel('Show in the collection').uncheck();
-  await page.getByRole('button',{name:'Save changes'}).last().click();
+  await page.getByRole('button',{name:'Save changes'}).click();
   await expect(page.locator('.draft-chip')).toContainText('Draft');
   await page.reload();
   await expect(page.locator('.draft-chip')).toContainText('Draft project');
@@ -290,11 +290,11 @@ test('a failed submission retains fields and files and can be retried',async ({p
   // Simulate a dropped response before any backend mutation.
   await page.route('**/api/projects', route => route.abort('connectionfailed'), { times: 1 });
   page.__allowNetworkFailure = true;
-  await page.getByRole('button',{name:'Save changes'}).last().click();
+  await page.getByRole('button',{name:'Save changes'}).click();
   await expect(page.getByLabel('Project title')).toHaveValue('Retry project');
   await expect(page.locator('#pending-media')).toContainText('retry.png');
-  await expect(page.getByRole('button',{name:'Save changes'}).last()).toBeEnabled();
-  await page.getByRole('button',{name:'Save changes'}).last().click();
+  await expect(page.getByRole('button',{name:'Save changes'})).toBeEnabled();
+  await page.getByRole('button',{name:'Save changes'}).click();
   await expect(page.locator('.draft-chip.active')).toContainText('Retry project');
 });
 test('profile saves once, persists after reload, and visitors can download the CV',async ({page, browser})=>{
@@ -355,11 +355,16 @@ test('unsaved changes are protected and preferences apply to new projects',async
   await expect(page.getByLabel('Project title')).toHaveValue('Unsaved work');
   await page.getByRole('button',{name:'Access & security'}).click();
   await page.getByRole('button',{name:'Leave page'}).click();
-  await page.getByLabel('Default permission for future downloads').selectOption('none');
+  const defaultPermission = page.getByLabel('Default permission for future downloads');
+  await expect(defaultPermission.locator('option')).toHaveText(['Downloads disabled', 'All visitors']);
+  await expect(defaultPermission).toHaveValue('none');
+  await defaultPermission.selectOption('public');
   await page.getByRole('button',{name:'Save preference'}).click();
   await expect(page.getByText('Download preference updated for this preview.')).toBeVisible();
   await page.getByRole('button',{name:/^Projects/}).click();
-  await expect(page.getByLabel('Download permission')).toHaveValue('none');
+  const downloadPermission = page.getByLabel('Download permission');
+  await expect(downloadPermission.locator('option')).toHaveText(['Downloads disabled', 'All visitors']);
+  await expect(downloadPermission).toHaveValue('public');
 });
 test('dark mode applies immediately and persists across reloads', async ({ page }) => {
   await ensureSignedIn(page);

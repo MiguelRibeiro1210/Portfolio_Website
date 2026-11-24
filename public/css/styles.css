@@ -242,8 +242,9 @@ legend { font-size: 12px; margin-bottom: 12px; }
 .publish-card>.eyebrow, .publish-card>h3 { display: none; }
 .publish-card>p { font-size: 10px; color: var(--muted); margin: 15px 0 20px; }
 .editor-note { display: flex; gap: 10px; padding: 22px 0; font-size: 10px; color: var(--muted); }
-.editor-footer { display: flex; justify-content: space-between; gap: 20px; align-items: center; margin-top: 25px; font-size: 10px; }
+.editor-footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 20px; align-items: center; margin-top: 25px; font-size: 10px; }
 .editor-footer>.btn { font-size: 11px; }
+.editor-footer>button[type=submit] { margin-inline-start: auto; }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 20px; }
 .profile-form { max-width: 900px; }
 .profile-form>.editor-panel { margin-bottom: 24px; }
@@ -358,7 +359,6 @@ dialog>p { font-size: 14px; margin-bottom: 20px; }
   .nav-right { gap: 10px; }
   .nav-right .btn { font-size: 10px; gap: 7px; }
   .nav-right .btn svg { width: 14px; }
-  .nav-right .header-save { display: none; }
   .showroom-heading>.eyebrow { font-size: 8px; }
   .featured-controls>span { font-size: 7px; }
   .featured-caption { font-size: 8px; }
@@ -412,9 +412,6 @@ dialog>p { font-size: 14px; margin-bottom: 20px; }
 @media (prefers-reduced-motion:reduce) {
   *, *::before, *::after { transition: none!important; animation: none!important; scroll-behavior: auto!important; }
 }
-@media (min-width:561px) {
-  .publish-card>button[type=submit] { display:none; }
-}
 .maker { align-items: center; justify-content: space-between; gap: 30px; }
 .project-visual .form { display: grid; grid-template-rows: auto auto 1fr 1fr; gap: 3%; padding: 4%; }
 .project-visual .form>h4 { margin-bottom: 0; }
@@ -431,7 +428,6 @@ dialog>p { font-size: 14px; margin-bottom: 20px; }
 @media (max-width:560px) {
   .maker { flex-wrap: wrap; gap: 20px; margin-top: 20px; }
   .maker h2 { font-size: 30px; }
-  .publish-card>.btn { margin-top: 15px; }
   .publish-card>p { margin-bottom: 0; }
 }
 /* Scroll and swipe navigation preserve the surrounding page position. */

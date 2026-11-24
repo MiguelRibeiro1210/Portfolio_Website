@@ -1,5 +1,5 @@
 // Projects and CV data use the backend. Download preferences are preview state.
-const initial = () => ({ projects: [], profile: { name: '', role: '', location: '', summary: '', experience: '', education: '', skills: '', email: '', github: '', linkedin: '', cvId: '', cvName: '' }, settings: { permission: 'request' } });
+const initial = () => ({ projects: [], profile: { name: '', role: '', location: '', summary: '', experience: '', education: '', skills: '', email: '', github: '', linkedin: '', cvId: '', cvName: '' }, settings: { permission: 'none' } });
 let workspace = initial();
 let previewFiles = new Map();
 let accessToken = null;
@@ -112,7 +112,7 @@ async function projectRequest(path, options) {
 function projectView(project) {
   return { ...project, story: project.notes?.story || '', compatibility: project.notes?.compatibility || '',
     source: project.notes?.source || '', releaseNotes: project.notes?.releaseNotes || '',
-    builds: project.build?.id ? [project.build] : [], permission: project.build?.permission || 'request' };
+    builds: project.build?.id ? [project.build] : [], permission: project.build?.permission };
 }
 function projectFormData(project, files) {
   const body = new FormData();
