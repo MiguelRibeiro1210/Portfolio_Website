@@ -23,6 +23,13 @@ export function createFeedApi(request) {
   };
 }
 
+export function matchesSearch(post, query) {
+  const normalize = value => String(value ?? '').normalize('NFKD').replace(/\p{M}/gu, '').toLocaleLowerCase();
+  const terms = normalize(query).trim().split(/\s+/).filter(Boolean);
+  const content = normalize([post.author?.name, post.project?.title, post.project?.description, post.project?.stack].join(' '));
+  return terms.every(term => content.includes(term));
+}
+
 export function appendUnique(current, incoming) {
   const known = new Set(current.map(item => item.id));
   return [...current, ...incoming.filter(item => {

@@ -13,6 +13,14 @@
 .feed-sidebar .feed-sidebar-note { margin-top: 80px; font-size: 11px; line-height: 1.7; }
 .feed-stream { min-width: 0; max-width: 800px; }
 .feed-muted { color: var(--muted); font-size: 12px; }
+.feed-search { margin-bottom: 30px; }
+.feed-search > label { font-size: 12px; font-weight: 600; display: block; margin-bottom: 10px; }
+.feed-search-input { display: flex; align-items: center; gap: 12px; padding: 0 15px; background: var(--white); border: 1px solid var(--line); }
+.feed-search-input:focus-within { outline: 2px solid var(--button); outline-offset: 2px; }
+.feed-search-input input { width: 100%; min-width: 0; border: 0; outline: none; background: transparent; color: var(--ink); padding: 16px 0; font-size: 13px; }
+.feed-search-input input::-webkit-search-cancel-button { display: none; }
+.feed-search-input button { border: 0; padding: 6px; min-width: 32px; min-height: 32px; }
+.feed-search > p { margin-top: 8px; font-size: 11px; }
 .feed-stream-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 20px; margin: 0 0 22px; }
 .feed-stream-heading h2 { font-size: 14px; font-weight: 500; }
 .feed-stream-heading > span { font-size: 11px; color: var(--muted); }
