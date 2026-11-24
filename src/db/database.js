@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
 import { projectError } from '../domain/projectRules.js';
 import { describeDatabaseError } from './errors.js';
+import { createFeedOperations, ensureFeedPost } from './feedDatabase.js';
 
 const projectSelect = (withRevision = false) => `SELECT ${withRevision ? "p.revision, " : ""}p.id, p.owner_id AS "ownerId", p.title, p.type,
   p.description, p.stack, p.published, p.created_at AS "createdAt",
@@ -62,6 +63,9 @@ export async function openDatabase(config) {
     await pool.query('SELECT project_id FROM portfolio.project_notes LIMIT 0');
     await pool.query('SELECT id, project_id FROM portfolio.project_files LIMIT 0');
     await pool.query(`${profileSelect} LIMIT 0`);
+    await pool.query('SELECT id, project_id, created_at FROM portfolio.feed_posts LIMIT 0');
+    await pool.query('SELECT post_id, user_id FROM portfolio.post_likes LIMIT 0');
+    await pool.query('SELECT id, post_id, user_id, text, created_at FROM portfolio.post_comments LIMIT 0');
   } catch (error) {
     await pool.end();
     throw new Error(`Unable to connect to PostgreSQL or find the application tables. Run pending migrations. ${describeDatabaseError(error)}`);
@@ -91,6 +95,7 @@ export async function openDatabase(config) {
   }
 
   return {
+    ...createFeedOperations(pool),
     findOwnerProfile(ownerId) {
       return first(`${profileSelect} WHERE p.owner_id = $1`, [ownerId]);
     },
@@ -144,6 +149,7 @@ export async function openDatabase(config) {
           (id, owner_id, title, type, description, stack, published) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
         [project.id, project.ownerId, project.title, project.type, project.description, project.stack, project.published]);
         await writeProjectAssociations(client, project);
+        await ensureFeedPost(client, project.id);
         const { rows: [saved] } = await client.query(`${projectSelect()} WHERE p.id = $1 AND p.owner_id = $2`, [project.id, project.ownerId]);
         return saved;
       });
@@ -160,6 +166,7 @@ export async function openDatabase(config) {
         await client.query('DELETE FROM portfolio.project_notes WHERE project_id = $1', [project.id]);
         await client.query('DELETE FROM portfolio.project_files WHERE project_id = $1', [project.id]);
         await writeProjectAssociations(client, project);
+        await ensureFeedPost(client, project.id);
         const kept = new Set([...project.media, project.build].filter(Boolean).map(file => file.id));
         const { rows: [saved] } = await client.query(`${projectSelect()} WHERE p.id = $1 AND p.owner_id = $2`,
           [project.id, project.ownerId]);

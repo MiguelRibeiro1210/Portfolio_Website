@@ -4,7 +4,6 @@ import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { projectError } from '../domain/projectRules.js';
 
-// Files stay outside public/. Only authenticated, owner-scoped routes serve them.
 export function createFileStorage(directory = process.env.PROJECT_UPLOAD_DIR || fileURLToPath(new URL('../uploads/projects/', import.meta.url))) {
   const root = resolve(directory);
   return {

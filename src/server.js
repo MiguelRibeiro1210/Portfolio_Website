@@ -5,6 +5,7 @@ import { createAuthRouter } from './routes/auth.routes.js';
 import { createCvRouter } from './routes/cv.routes.js';
 import { createShowroomRouter } from './routes/showroom.routes.js';
 import { createProjectRouter } from './routes/project.routes.js';
+import { createFeedRouter } from './routes/feed.routes.js';
 import { createServer } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
 import { resolve, extname, sep } from 'node:path';
@@ -28,6 +29,7 @@ export function createAppServer({ databaseConfig, database, authConfig = loadAut
   app.use('/api', createCvRouter(getDatabase, authConfig, cvStorage));
   app.use('/api/projects', createProjectRouter(getDatabase, authConfig, projectStorage));
   app.use('/api/showrooms', createShowroomRouter(getDatabase, projectStorage));
+  app.use('/api/feed', createFeedRouter(getDatabase, authConfig, projectStorage));
   app.use(async (req, res) => {
     if (req.method !== 'GET' && req.method !== 'HEAD') {
       res.writeHead(405, { Allow: 'GET, HEAD' }).end('Method not allowed'); return;

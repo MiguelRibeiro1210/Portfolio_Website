@@ -6,7 +6,7 @@
 
 As a visitor or signed-in user, I want to scroll through projects shared by different users, see their authors and media, and read their comments, so I can discover their work. As a signed-in user, I also want to like projects and add comments.
 
-UC005 describes a **planned** public feed and its React frontend. It does not report implemented functionality. [UC001](../../UC001/login/UC001_Login.md) supplies authentication and [UC002](../../UC002/createProject/UC002_Create_Project.md) supplies project creation and gallery uploads. The current frontend has no React feed, and current project/file reads are restricted to the owner.
+The **feed backend is implemented**; the React frontend and feed-first navigation remain planned. The backend can be exercised through the API without changing the current website entry screen. [UC001](../../UC001/login/UC001_Login.md) supplies authentication and [UC002](../../UC002/createProject/UC002_Create_Project.md) supplies project creation and gallery uploads. The current frontend has no React feed. Existing owner-only APIs and the separately implemented public showroom/profile endpoints remain unchanged.
 
 A **Feed Post** is a durable record associated with one project. It is created automatically when that project is first published. A **ProjectPost** is a React component created when fetched post data is rendered. Scrolling creates additional components, not additional database posts.
 
@@ -25,7 +25,7 @@ A **Feed Post** is a durable record associated with one project. It is created a
 
 ### 1.3. Inputs and outputs
 
-All interfaces below are **proposed contracts**, not existing endpoints. Public GET requests may omit authentication. With a bearer token, verify it and its active session before returning viewer-specific state. An invalid supplied token returns `401`; the client may refresh once, then repeat public reads without credentials if the session has ended. Public reads must work without waiting for successful authentication.
+The following backend endpoints are implemented. Public GET requests may omit authentication. With a bearer token, verify it and its active session before returning viewer-specific state. An invalid supplied token returns `401`; the client may refresh once, then repeat public reads without credentials if the session has ended. Public reads must work without waiting for successful authentication.
 
 | Endpoint | Input / authentication | Success output |
 |:---|:---|:---|
@@ -68,6 +68,8 @@ Example feed response:
 
 The public author contains account ID and display name only. Use the existing account name; a saved profile is not required. The project summary is an explicit allowlist of ID, title, showcase type, description, and tech stack. Do not return account email, password/session data, internal storage paths, build identifiers, or the entire owner-facing project object. Feed cards do not link to the existing owner-only detail route in this milestone; public project-detail pages are separate work.
 
+Cursors are scoped to feed pages or the specific comment post; reusing a cursor in a different scope returns `400`. Comments accept at most 16 KiB of JSON (`413` above the transport limit).
+
 A comment response item contains `id`, `postId`, `author: { id, name }`, `text`, and `createdAt`. Comments are flat, ordered oldest first. Like state is `false` for visitors. Feed responses are not stored in shared caches when they can contain viewer-specific data; use `Cache-Control: no-store` for feed, comments, and interaction responses.
 
 | Failure | Response / frontend handling |
@@ -82,9 +84,9 @@ A comment response item contains `id`, `postId`, `author: { id, name }`, `text`,
 
 - Reuse UC001 session verification for writes and optional viewer identity on feed reads. Never accept the acting user's ID or post author from the browser.
 - Reuse UC002's `published` flag. Both `open` and `private` showcase types can appear when published; `private` means closed-source, not an unpublished draft.
-- A published project's feed post is created in the same PostgreSQL transaction as the project. A creation failure cannot leave only one record committed. Draft creation does not create a post. Future publish/unpublish operations must observe the same eligibility checks; this use case does not implement the editor for those operations.
+- A published project's feed post is created in the same PostgreSQL transaction as the project. A creation failure cannot leave only one record committed. Draft creation does not create a post. The existing project update transaction creates the post on first publication. Unpublishing hides the existing post and its interactions without deleting them; republishing preserves its ID/time. Deleting the project cascades to its post, likes, and comments.
 - Keep a unique project reference on each post. Backfill existing published projects using their project creation time, preserving their ordering and using conflict-safe inserts. Do not backfill drafts. Do not create posts during GET requests.
-- Reuse gallery files and their ordering. If the chosen cover file is missing, show a placeholder rather than silently selecting different media. Build files never qualify as cover media.
+- Reuse gallery files and their ordering. If the chosen cover file is missing, the media API returns `404`; the planned frontend will show a placeholder rather than silently selecting different media. If no media metadata exists in a legacy project, its summary has `cover: null`. Build files never qualify as cover media.
 - Existing project/detail/file APIs remain owner-only. Introduce a separate public cover route that checks publication and post association on every request, including range requests. Existing build permissions and download endpoints are unchanged; feed visibility grants no build access.
 - Likes and comments are durable. Notifications, ranking, follows, search, threaded replies, comment editing/deletion, moderation tools, public project-detail/profile pages, avatars, and frontend-wide React migration are outside this milestone.
 
@@ -102,7 +104,7 @@ A comment response item contains `id`, `postId`, `author: { id, name }`, `text`,
 
 ### 2.2. Domain and persistence
 
-The [updated domain model](../../global_artifacts/domain-model.puml) adds planned feed entities while preserving account/project ownership and optional notes/builds.
+The [updated domain model](../../global_artifacts/domain-model.puml) adds feed entities while preserving account/project ownership and optional notes/builds.
 
 | Concept | Planned persistence / invariant |
 |:---|:---|
@@ -111,30 +113,30 @@ The [updated domain model](../../global_artifacts/domain-model.puml) adds planne
 | Post Comment | `portfolio.post_comments`: UUID ID, post/user references, text, and creation timestamp. Validate length on the server and with a database constraint. |
 | Media Item | Existing `portfolio.project_files` rows with `kind = 'media'`, represented explicitly in the model with ID, name, media type, size, and position. Post cover is a derived reference, not a copied file or new upload. |
 
-Plan a new migration `004_create_feed_tables.sql` to create these tables, indexes, and the idempotent backfill. Grant the runtime role only the required actions: read/insert posts, read/insert/delete likes, and read/insert comments. Preserve account IDs, project IDs, existing files, and authentication data. No SQL migration is applied by this documentation change.
+Migration `007_create_feed_tables.sql` creates these tables, indexes, and the idempotent backfill. Numbers 004–006 are already used by profiles, project revisions, and public showrooms. Grant the runtime role only the required actions: read/insert posts, read/insert/delete likes, and read/insert comments. Preserve account IDs, project IDs, existing files, and authentication data. The migration also grants revision-column UPDATE privilege for project row locks that serialize feed interactions with unpublishing/deletion. Apply pending migrations before deploying the backend.
 
 Use a descending index on feed-post `(created_at, id)`, and ascending comment `(post_id, created_at, id)`. Add indexes supporting counts for each returned post. Aggregate counts for the requested page only, without joining raw likes and comments into a multiplying row set. Use parameterized queries.
 
 Feed pagination uses keyset comparison `(created_at, id) < (cursorTime, cursorId)` with descending ordering; comments use `>` with ascending ordering. Fetch one extra row to determine whether a next page exists. Encode the boundary pair in an opaque base64url cursor, validate both fields, and preserve database timestamp precision when generating it. Cursor contents identify a boundary, not an authorization grant. Publication is always checked in the query. Newly published posts appear on refresh at the top; no live insertion or offset pagination is planned.
 
-### 2.3. Planned components
+### 2.3. Components and implementation status
 
-Existing paths below identify integration points. New filenames are proposals and do not imply implemented modules.
+Backend modules below are implemented. React components and the end-to-end frontend flows remain planned.
 
 | Component | Responsibility |
 |:---|:---|
-| `src/routes/feed.routes.js` (new), existing `src/server.js` | Mount public read and authenticated interaction routes under `/api/feed`; validate transport, status codes, and media responses. |
-| `src/services/feedService.js` (new) | Enforce published eligibility, derive public projections/cover selection, and coordinate pagination and interactions. |
-| `src/domain/feedRules.js` (new) | Validate cursors, limits, IDs, and comment text. |
-| Existing `src/middleware/requireAuth.js`; `src/middleware/optionalAuth.js` (new) | Share token/session verification. Permit absent credentials on public reads; reject invalid supplied credentials. |
-| Existing `src/db/database.js` | Add post creation to the UC002 transaction, paginated reads, unique like writes, comment persistence, and page-scoped counts. |
+| `src/routes/feed.routes.js`, existing `src/server.js` | Mount public read and authenticated interaction routes under `/api/feed`; validate transport, status codes, and media responses. |
+| `src/services/feedService.js` | Enforce published eligibility, derive public projections/cover selection, and coordinate pagination and interactions. |
+| `src/domain/feedRules.js` | Validate cursors, limits, IDs, and comment text. |
+| Existing `src/middleware/requireAuth.js`; `src/middleware/optionalAuth.js` | Share token/session verification. Permit absent credentials on public reads; reject invalid supplied credentials. |
+| `src/db/database.js`, `src/db/feedDatabase.js` | Add post creation to project create/update transactions; implement precise paginated reads, publication-safe row locks, unique like writes, comments, and page-scoped counts. |
 | Existing `src/services/fileStorageService.js` | Resolve an already authorized cover reference to a file. Never use a user-supplied path. |
-| `src/db/migrations/004_create_feed_tables.sql` (new) | Add feed persistence, grants, indexes, and backfill. |
+| `src/db/migrations/007_create_feed_tables.sql` | Add feed persistence, grants, indexes, and backfill. |
 | Planned React feed and API adapter | Mount the public screen, request batches, manage card interactions, and clean up on navigation. See the [frontend plan](UC005_Frontend_Plan.md). |
 
 ### 2.4. Diagrams
 
-Every UC005 diagram describes **planned behavior**. Backend participants use existing or proposed file paths.
+UC005 diagrams describe the end-to-end target, including the still-planned React frontend. Backend endpoints are now implemented; participant filenames remain the integration boundaries. Backend participants use existing or proposed file paths.
 
 | Diagram | PlantUML source | Rendered preview |
 |:---|:---|:---|
@@ -155,7 +157,7 @@ Every UC005 diagram describes **planned behavior**. Backend participants use exi
 6. Load comments only after opening their section. Verify oldest-first pagination, server-derived authors, trim/length/type validation, malformed JSON, plain-text rendering, persisted counts, and rejection of comments on unavailable posts. Fail a submission and verify input remains; do not silently auto-retry an ambiguous POST.
 7. In desktop/mobile browser tests, verify feed-first entry, preserved sign-in/collection/studio navigation, one initial batch, incremental requests, stable card keys, and prevention of concurrent next-page loads. Assert that owner-only collection loading is not used to populate the feed.
 8. Verify retry preserves earlier cards, empty and exhausted states differ, comments/media are lazy, video does not autoplay, and the keyboard Load more action works. Leave the route during a request and ensure aborted/stale results cannot update the next screen.
-9. Build the planned React bundle before browser tests, and rerun UC001/UC002 regression suites against an isolated test database and upload directory. For this documentation change, validate links, PlantUML syntax, SVG rendering, and cross-document consistency.
+9. Build the planned React bundle before browser tests, and rerun UC001/UC002 regression suites against an isolated test database and upload directory. For documentation updates, validate links, PlantUML syntax, SVG rendering, and cross-document consistency.
 
 ## 4. Implementation Order
 

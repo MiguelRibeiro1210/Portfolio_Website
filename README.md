@@ -86,7 +86,7 @@ Install dependencies and configure the app from the project root:
 
 ## REST API Endpoints
 
-Authentication, project creation, and project/file reads are implemented. Project update/delete and CV endpoints remain planned contracts.
+Authentication, project CRUD, public showrooms, profiles/CVs, and the UC005 feed backend are implemented. The React feed frontend remains planned.
 
 | Method | Path | Auth / Ownership | Purpose |
 | :--- | :--- | :--- | :--- |
@@ -106,6 +106,11 @@ Authentication, project creation, and project/file reads are implemented. Projec
 | `GET` | `/api/profile/me/cv` | Bearer token | Load the owner's PDF |
 | `GET` | `/api/profiles/:publicId` | Public | View the saved profile |
 | `GET` | `/api/profiles/:publicId/cv` | Public | Preview the PDF or download it with `?download=1` |
+| `GET` | `/api/feed?cursor=…&limit=10` | Public; optional bearer token | Cursor-paginated published post summaries and viewer like state |
+| `GET` | `/api/feed/posts/:postId/media` | Public | Published cover media, including video range requests |
+| `GET` | `/api/feed/posts/:postId/comments?cursor=…` | Public | Read up to 20 comments, oldest first |
+| `PUT` / `DELETE` | `/api/feed/posts/:postId/like` | Bearer token | Idempotently like/unlike as the signed-in account |
+| `POST` | `/api/feed/posts/:postId/comments` | Bearer token | Create a plain-text comment with JSON `{ "text": "…" }` |
 
 ---
 
@@ -123,11 +128,23 @@ Set `PROJECT_UPLOAD_DIR` to a persistent, writable server directory; the default
 
 ---
 
+## Project Feed Backend (UC005)
+
+Run `npm run db:migrate` before restarting this backend. Migration `007_create_feed_tables.sql` adds posts, likes, and comments, and backfills existing published projects without changing their project IDs or media. Creating or first publishing a project creates its unique post in the same transaction. Unpublishing hides the post and its public media/interactions; republishing preserves its original post ID and time. Project deletion cascades to the post, likes, and comments.
+
+`GET /api/feed` returns `{ posts, nextCursor }`, with ten posts by default (maximum 50), newest first. Follow the opaque cursor for subsequent pages. Each summary contains an author ID/name, selected public project fields, a cover URL, counts, and `viewerHasLiked`. Sending no bearer token supports anonymous browsing; sending an invalid or revoked token returns `401`. No feed read creates posts or loads the complete owner workspace.
+
+Covers reuse the first gallery image, or the first video if no image exists. Feed media endpoints never serve builds. Like/unlike requires an active session and returns `{ likeCount, viewerHasLiked }`. Comments require JSON with only `text` (1–1,000 trimmed Unicode characters); the server derives the author. Comments are paginated separately in batches of 20. Feed responses use `Cache-Control: no-store`.
+
+See the [UC005 API and design](docs/UC005/projectFeed/UC005_Project_Feed.md) and [future React frontend plan](docs/UC005/projectFeed/UC005_Frontend_Plan.md). This implementation changes no frontend routes, installs no React dependencies, and does not enable a feed landing page yet.
+
+---
+
 ## Security Tests
 
 Run `npm test` for frontend, configuration, and authentication checks. PostgreSQL integration tests are skipped when `TEST_DATABASE_URL` is absent.
 
-Set `TEST_DATABASE_URL` to a separate disposable PostgreSQL database whose name ends in `_test`, and set `TEST_DATABASE_SSL=false` for local PostgreSQL. Run `npm run test:integration` for registration, password login, token rotation, logout, and simulated provider sign-in. The tests refuse an existing `portfolio` schema. See [test setup](docs/remote_database_setup.md#testing).
+Set `TEST_DATABASE_URL` to a separate disposable PostgreSQL database whose name ends in `_test`, and set `TEST_DATABASE_SSL=false` for local PostgreSQL. Run `npm run test:integration` for registration, password login, token rotation, logout, simulated provider sign-in, project/profile persistence, and feed pagination/interactions. The tests refuse an existing `portfolio` schema. See [test setup](docs/remote_database_setup.md#testing).
 
 Run `npm run test:e2e` for browser tests. Setting `TEST_DATABASE_URL` also enables the browser sign-in, reload, and logout test.
 
