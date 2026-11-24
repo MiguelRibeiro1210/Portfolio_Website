@@ -72,7 +72,19 @@ test('feed is public, cursor-paginated, precise, and exposes only published publ
     assert.equal(response.headers.get('cache-control'), 'no-store');
     const { posts: [post] } = await response.json();
     assert.deepEqual(Object.keys(post).sort(), ['author', 'commentCount', 'cover', 'createdAt', 'id', 'likeCount', 'project', 'viewerHasLiked'].sort());
-    assert.deepEqual(post.author, { id: owner.user.id, name: owner.user.name });
+    const { rows: [ownerIds] } = await f.inspection.query('SELECT showroom_id FROM portfolio.users WHERE id = $1', [owner.user.id]);
+    assert.deepEqual(post.author, { id: owner.user.id, name: owner.user.name, showroomId: ownerIds.showroom_id, profileId: null });
+    assert.equal((await f.request(`/showrooms/${post.author.showroomId}/projects/${post.project.id}`)).status, 200);
+    const profileBody = new FormData();
+    profileBody.set('name', owner.user.name);
+    const savedProfile = await fetch(new URL('/api/profile/me', response.url), {
+      method: 'PUT', headers: { Authorization: `Bearer ${owner.token}` }, body: profileBody,
+    });
+    assert.equal(savedProfile.status, 200);
+    const { profile } = await savedProfile.json();
+    const refreshed = await (await f.request('/feed')).json();
+    assert.equal(refreshed.posts[0].author.profileId, profile.publicId);
+    assert.equal((await f.request(`/profiles/${refreshed.posts[0].author.profileId}`)).status, 200);
     assert.deepEqual(post.project, { id: publicProject.id, title: details.title, type: 'private', description: details.description, stack: details.stack });
     assert.deepEqual(Object.keys(post.cover).sort(), ['name', 'type', 'url']);
     assert.equal(post.likeCount, 0);

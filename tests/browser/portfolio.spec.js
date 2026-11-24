@@ -11,7 +11,7 @@ test.beforeEach(async ({ page }) => {
     if (message.type() === 'error' && !expectedAuthFailure && !(page.__allowNetworkFailure && message.text().includes('net::ERR_CONNECTION_FAILED'))) errors.push(message.text());
   });
   page.__errors=errors;
-  await page.goto('/');
+  await page.goto('/#/signin');
   await expect(page.getByRole('heading',{name:'Welcome back.'})).toBeVisible();
   await page.getByRole('navigation').getByRole('link',{name:'Showroom',exact:true}).click();
   await expect(page.getByRole('heading',{name:/Your Projects/})).toBeVisible();
@@ -161,10 +161,10 @@ test('featured project controls cycle through saved projects',async ({page})=>{
   await page.getByRole('button',{name:'Previous featured project'}).click();
   await expect(page.locator('.featured-copy h2')).toHaveText('First project');
 });
-test('fresh visits start at sign-in and explicit page links remain available',async ({page})=>{
+test('fresh visits start at the public feed and explicit page links remain available',async ({page})=>{
   await page.goto('/');
-  await expect(page).toHaveURL(/#\/signin$/);
-  await expect(page.getByRole('heading',{name:'Welcome back.'})).toBeVisible();
+  await expect(page).toHaveURL(/#\/feed$/);
+  await expect(page.getByRole('heading',{name:/Discover what’s/})).toBeVisible();
   await page.getByRole('navigation').getByRole('link',{name:'Showroom',exact:true}).click();
   await expect(page.getByRole('heading',{name:'Your Projects'})).toBeVisible();
   await page.goto('/#/about');
@@ -187,7 +187,7 @@ test('saved projects and files survive reload without browser storage',async ({p
   await navigate(page,`/project/${id}`);
   await expect(page.locator('.media-view img')).toBeVisible();
   await page.getByRole('button',{name:'Sign out'}).click();
-  await expect(page).toHaveURL(/#\/signin$/);
+  await expect(page).toHaveURL(/#\/feed$/);
   await page.goto(`/#/project/${id}`);
   await expect(page.getByRole('heading',{name:'This room is empty.'})).toBeVisible();
 });
@@ -407,16 +407,16 @@ test('sign-in survives reload and sign-out ends the browser session', async ({ p
   await page.getByLabel('Email address').fill(email);
   await page.getByLabel('Password', { exact: true }).fill(password);
   await page.getByRole('button', { name: 'Sign in' }).click();
-  await expect(page).toHaveURL(/#\/$/);
+  await expect(page).toHaveURL(/#\/feed$/);
   await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
 
   await page.reload();
   await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
   await page.getByRole('button', { name: 'Sign out' }).click();
-  await expect(page).toHaveURL(/#\/signin$/);
+  await expect(page).toHaveURL(/#\/feed$/);
   await page.reload();
-  await expect(page.getByRole('heading', { name: 'Welcome back.' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /Discover what’s/ })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Sign out' })).toHaveCount(0);
 });
 

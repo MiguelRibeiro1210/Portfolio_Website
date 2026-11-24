@@ -15,6 +15,9 @@ while IFS= read -r -d '' source_file; do
 done < <(find src public/js tests -type f -name '*.js' -print0)
 node --check playwright.config.js
 
+echo 'Building the React feed...'
+npm run build:feed
+
 echo 'Running unit and PostgreSQL integration tests...'
 npm test
 
