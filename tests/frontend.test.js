@@ -22,7 +22,10 @@ test('static server serves the application and protects project writes', async (
 test('initial workspace contains no invented personal or project data', () => {
   const state=emptyWorkspace(); assert.deepEqual(state.projects,[]);
   assert.ok(Object.values(state.profile).every(value=>value===''));
-  const home=showroom(state); assert.match(home,/Project title/); assert.doesNotMatch(home,/Alex Morgan|Obsidian Studio|<img/);
+  const home = showroom(state);
+  assert.match(home, /No published projects yet\./);
+  assert.match(home, /href="#\/studio">Create your first project/);
+  assert.doesNotMatch(home, /Project title|Alex Morgan|Obsidian Studio|<img/);
 });
 
 test('user text cannot become markup in project views', () => {

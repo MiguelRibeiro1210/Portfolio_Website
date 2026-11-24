@@ -90,5 +90,13 @@ function securityEditor(state, account, oauthStatus) {
       <form method="post" action="/api/oauth/google/link"><button class="btn" type="submit">Connect Google</button></form>
       <form method="post" action="/api/oauth/github/link"><button class="btn" type="submit">Connect GitHub</button></form>`
     : `<p>Sign in to connect a provider to your account.</p>${link('Go to sign in','#/signin','primary','arrow')}`;
-  return `<div class="studio-title"><div><p class="eyebrow">ACCESS & SECURITY</p><h1>A space of your own.</h1><p>Manage how your work will be shared.</p></div></div><section class="editor-panel security-panel"><div class="panel-icon">${icon('lock')}</div><h2>Account connection</h2>${accountControls}<p role="status">${oauthStatus}</p><hr><form id="settings-form"><label class="field"><span>Default permission for future downloads</span><select name="permission"><option value="request" ${state.settings.permission==='request'?'selected':''}>Approved visitors only</option><option value="public" ${state.settings.permission==='public'?'selected':''}>All visitors</option><option value="none" ${state.settings.permission==='none'?'selected':''}>Downloads disabled</option></select></label><p class="fine-print">Preview preference only. Backend authorization is required to protect hosted downloads.</p><button type="submit" class="btn">Save preference ${icon('check')}</button></form></section>`;
+  const appearance = `<section class="editor-panel appearance-panel" aria-labelledby="appearance-heading">
+    <h2 id="appearance-heading">Appearance</h2>
+    <label class="theme-setting" for="dark-theme">
+      <span>Dark mode</span>
+      <input id="dark-theme" class="theme-switch" type="checkbox" role="switch"
+        ${document.documentElement.dataset.theme === 'dark' ? 'checked' : ''}>
+    </label>
+  </section>`;
+  return `<div class="studio-title"><div><p class="eyebrow">ACCESS & SECURITY</p><h1>A space of your own.</h1><p>Manage how your work will be shared.</p></div></div><section class="editor-panel security-panel"><div class="panel-icon">${icon('lock')}</div><h2>Account connection</h2>${accountControls}<p role="status">${oauthStatus}</p><hr><form id="settings-form"><label class="field"><span>Default permission for future downloads</span><select name="permission"><option value="request" ${state.settings.permission==='request'?'selected':''}>Approved visitors only</option><option value="public" ${state.settings.permission==='public'?'selected':''}>All visitors</option><option value="none" ${state.settings.permission==='none'?'selected':''}>Downloads disabled</option></select></label><p class="fine-print">Preview preference only. Backend authorization is required to protect hosted downloads.</p><button type="submit" class="btn">Save preference ${icon('check')}</button></form></section>${appearance}`;
 }

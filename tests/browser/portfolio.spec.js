@@ -354,6 +354,23 @@ test('unsaved changes are protected and preferences apply to new projects',async
   await page.getByRole('button',{name:/^Projects/}).click();
   await expect(page.getByLabel('Download permission')).toHaveValue('none');
 });
+test('dark mode applies immediately and persists across reloads', async ({ page }) => {
+  await ensureSignedIn(page);
+  await navigate(page, '/studio?section=security');
+  const darkMode = page.getByRole('switch', { name: 'Dark mode' });
+  const root = page.locator('html');
+  await expect(darkMode).not.toBeChecked();
+  await darkMode.press('Space');
+  await expect(root).toHaveCSS('background-color', 'rgb(21, 23, 25)');
+  await page.reload();
+  await expect(darkMode).toBeChecked();
+  await expect(root).toHaveCSS('color-scheme', 'dark');
+  await darkMode.click();
+  await page.reload();
+  await expect(darkMode).not.toBeChecked();
+  await expect(root).toHaveCSS('background-color', 'rgb(245, 245, 242)');
+});
+
 test('account forms show invalid credentials and explain an unconfigured provider and pending reset flow',async({page})=>{
   await navigate(page,'/signin');
   await expect(page.getByRole('link', { name: 'Forgot password?' })).toHaveCount(0);
