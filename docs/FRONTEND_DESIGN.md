@@ -4,7 +4,7 @@
 
 This document defines the **planned frontend** for the portfolio application. It is a design specification. Screens, interactions, layers, and acceptance criteria describe the intended product behavior.
 
-[UC005](UC005/projectFeed/UC005_Project_Feed.md) extends this design with a public React project feed. Its [frontend plan](UC005/projectFeed/UC005_Frontend_Plan.md) specifies incremental loading, components, session integration, and future build/CI changes. The feed is planned; existing authentication and UC002 creation are already connected to the backend.
+[UC005](UC005/projectFeed/UC005_Project_Feed.md) extends this design with a public React project feed. Its [frontend plan](UC005/projectFeed/UC005_Frontend_Plan.md) specifies incremental loading, components, session integration, and build/CI integration. The React feed is implemented with loaded-post/creator search; existing authentication and UC002 creation are already connected to the backend.
 
 The backend API, database, authentication service, and durable file storage **will be implemented separately**. They appear in this design only to explain the connections the frontend will require. Backend frameworks, database engines, endpoint paths, authentication protocols, schemas, and hosting providers are outside this document's scope.
 
@@ -14,7 +14,7 @@ The six-screen redesign uses a light neutral canvas, white panels, blue primary 
 
 - Visitors will explore the collection, inspect projects, read the maker's profile/CV, and use the download actions available to them.
 - The portfolio owner will manage projects, profile information, media, releases, CV documents, and access preferences through the studio.
-- Under UC005, a fresh visit and the wordmark will open the public feed. Feed, Your collection, and Sign in will have explicit navigation actions; the existing owner collection remains at `#/`. Until UC005 is implemented, current entry behavior remains sign-in-first.
+- Under UC005, a fresh visit and the wordmark will open the public feed. Feed, Your collection, and Sign in will have explicit navigation actions; the existing owner collection remains at `#/`. The feed now replaces the former sign-in-first entry behavior.
 - Owner actions will depend on the account and permissions returned by the future backend. Frontend visibility and navigation checks will not replace server authorization.
 
 ## Planned screens and interactions

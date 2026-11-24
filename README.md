@@ -86,7 +86,7 @@ Install dependencies and configure the app from the project root:
 
 ## REST API Endpoints
 
-Authentication, project CRUD, public showrooms, profiles/CVs, and the UC005 feed backend are implemented. The React feed frontend remains planned.
+Authentication, project CRUD, public showrooms, profiles/CVs, and the UC005 feed backend are implemented. The React discovery feed is available at `#/feed`, with incremental loading, likes, comments, and search across loaded projects/creators.
 
 | Method | Path | Auth / Ownership | Purpose |
 | :--- | :--- | :--- | :--- |
@@ -136,7 +136,9 @@ Run `npm run db:migrate` before restarting this backend. Migration `007_create_f
 
 Covers reuse the first gallery image, or the first video if no image exists. Feed media endpoints never serve builds. Like/unlike requires an active session and returns `{ likeCount, viewerHasLiked }`. Comments require JSON with only `text` (1–1,000 trimmed Unicode characters); the server derives the author. Comments are paginated separately in batches of 20. Feed responses use `Cache-Control: no-store`.
 
-See the [UC005 API and design](docs/UC005/projectFeed/UC005_Project_Feed.md) and [future React frontend plan](docs/UC005/projectFeed/UC005_Frontend_Plan.md). This implementation changes no frontend routes, installs no React dependencies, and does not enable a feed landing page yet.
+See the [UC005 API and design](docs/UC005/projectFeed/UC005_Project_Feed.md) and [future React frontend plan](docs/UC005/projectFeed/UC005_Frontend_Plan.md). The React frontend is mounted only on `#/feed`, which is the default landing page. Existing showroom/studio/profile screens keep their vanilla JavaScript implementation. Search filters project titles/descriptions/tech stacks and creator names in already loaded posts; **Load more projects to search** requests another normal cursor page. It does not query a global user/project search endpoint or eagerly download the full feed. No backend search changes are included.
+
+Use Node.js 20.19+ or 22.12+ for Vite. `npm start`, `npm run dev`, and `npm run test:e2e` build the feed automatically. `npm run build:feed` produces the manifest and hashed assets in the ignored `public/feed-assets/` directory; preserve the other files under `public/`. During feed development, run `npm run dev:feed` in a second terminal to rebuild JSX/CSS changes. Production deployment must build with development dependencies available and include the generated feed assets when serving the existing Express app.
 
 ---
 
@@ -154,7 +156,7 @@ Run `npm run test:e2e` for browser tests. Setting `TEST_DATABASE_URL` also enabl
 
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every push to any branch or tag, pull requests, and manual dispatch. Each run installs dependencies with `npm ci`, starts a disposable PostgreSQL 17 service, installs Chromium, and executes [`scripts/ci.sh`](scripts/ci.sh) on Node.js 24.
 
-The script checks JavaScript syntax and runs unit, PostgreSQL integration, and desktop/mobile browser tests. This project executes JavaScript directly, so there is no separate transpilation or bundle build. Integration tests apply their own initial migration; CI does not need Supabase credentials. Browser reports and failure traces are retained as workflow artifacts for seven days.
+The script checks JavaScript syntax and runs unit, PostgreSQL integration, and desktop/mobile browser tests. Backend/static JavaScript syntax is checked directly. The isolated React feed JSX/CSS is compiled with Vite before browser tests; the existing screens are not migrated to React. Integration tests apply their own initial migration; CI does not need Supabase credentials. Browser reports and failure traces are retained as workflow artifacts for seven days.
 
 To run the same checks locally, first install dependencies and Chromium (`npm ci --include=dev` and `npx playwright install chromium`), then provide a separate disposable PostgreSQL database ending in `_test`:
 

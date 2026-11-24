@@ -6,7 +6,7 @@
 
 As a visitor or signed-in user, I want to scroll through projects shared by different users, see their authors and media, and read their comments, so I can discover their work. As a signed-in user, I also want to like projects and add comments.
 
-The **feed backend is implemented**; the React frontend and feed-first navigation remain planned. The backend can be exercised through the API without changing the current website entry screen. [UC001](../../UC001/login/UC001_Login.md) supplies authentication and [UC002](../../UC002/createProject/UC002_Create_Project.md) supplies project creation and gallery uploads. The current frontend has no React feed. Existing owner-only APIs and the separately implemented public showroom/profile endpoints remain unchanged.
+The **feed backend and React frontend are implemented**. The public feed is the default entry screen, with cursor loading, likes, an expandable comment section, and search across already loaded projects/creators. The search addition changes no backend endpoints. [UC001](../../UC001/login/UC001_Login.md) supplies authentication and [UC002](../../UC002/createProject/UC002_Create_Project.md) supplies project creation and gallery uploads. The feed uses a single React root inside the existing application shell. Existing owner-only APIs and the separately implemented public showroom/profile endpoints remain unchanged.
 
 A **Feed Post** is a durable record associated with one project. It is created automatically when that project is first published. A **ProjectPost** is a React component created when fetched post data is rendered. Scrolling creates additional components, not additional database posts.
 
@@ -44,7 +44,7 @@ Example feed response:
     {
       "id": "7e2c1532-8a41-4cab-b387-f9da455b7b01",
       "createdAt": "2026-11-23T09:00:00.000Z",
-      "author": { "id": 12, "name": "Alex Rivera" },
+      "author": { "id": 12, "name": "Alex Rivera", "showroomId": "9d78b82b-5e73-4794-b80f-0116112caf53", "profileId": null },
       "project": {
         "id": "32f1dbd1-dbb1-4d7a-a746-78d8f41c58ab",
         "title": "Focus Timer",
@@ -66,7 +66,7 @@ Example feed response:
 }
 ```
 
-The public author contains account ID and display name only. Use the existing account name; a saved profile is not required. The project summary is an explicit allowlist of ID, title, showcase type, description, and tech stack. Do not return account email, password/session data, internal storage paths, build identifiers, or the entire owner-facing project object. Feed cards do not link to the existing owner-only detail route in this milestone; public project-detail pages are separate work.
+The public author contains account ID, display name, public showroom ID, and nullable public profile ID. Use the existing account name; a saved profile is not required. The project summary is an explicit allowlist of ID, title, showcase type, description, and tech stack. Do not return account email, password/session data, internal storage paths, build identifiers, or the entire owner-facing project object. Project titles link to the existing public showroom project route. Author names link to the saved public profile, including its showroom context, or to the public showroom when no profile exists.
 
 Cursors are scoped to feed pages or the specific comment post; reusing a cursor in a different scope returns `400`. Comments accept at most 16 KiB of JSON (`413` above the transport limit).
 
@@ -88,7 +88,7 @@ A comment response item contains `id`, `postId`, `author: { id, name }`, `text`,
 - Keep a unique project reference on each post. Backfill existing published projects using their project creation time, preserving their ordering and using conflict-safe inserts. Do not backfill drafts. Do not create posts during GET requests.
 - Reuse gallery files and their ordering. If the chosen cover file is missing, the media API returns `404`; the planned frontend will show a placeholder rather than silently selecting different media. If no media metadata exists in a legacy project, its summary has `cover: null`. Build files never qualify as cover media.
 - Existing project/detail/file APIs remain owner-only. Introduce a separate public cover route that checks publication and post association on every request, including range requests. Existing build permissions and download endpoints are unchanged; feed visibility grants no build access.
-- Likes and comments are durable. Notifications, ranking, follows, search, threaded replies, comment editing/deletion, moderation tools, public project-detail/profile pages, avatars, and frontend-wide React migration are outside this milestone.
+- Likes and comments are durable. Notifications, ranking, follows, global directory search, threaded replies, comment editing/deletion, moderation tools, new public project-detail/profile pages, avatars, and frontend-wide React migration are outside this milestone.
 
 ## 2. Analysis and Design
 
@@ -121,7 +121,7 @@ Feed pagination uses keyset comparison `(created_at, id) < (cursorTime, cursorId
 
 ### 2.3. Components and implementation status
 
-Backend modules below are implemented. React components and the end-to-end frontend flows remain planned.
+Backend modules and the React feed are implemented. The existing session transport is injected into React so it does not own a second token store.
 
 | Component | Responsibility |
 |:---|:---|
@@ -132,11 +132,11 @@ Backend modules below are implemented. React components and the end-to-end front
 | `src/db/database.js`, `src/db/feedDatabase.js` | Add post creation to project create/update transactions; implement precise paginated reads, publication-safe row locks, unique like writes, comments, and page-scoped counts. |
 | Existing `src/services/fileStorageService.js` | Resolve an already authorized cover reference to a file. Never use a user-supplied path. |
 | `src/db/migrations/007_create_feed_tables.sql` | Add feed persistence, grants, indexes, and backfill. |
-| Planned React feed and API adapter | Mount the public screen, request batches, manage card interactions, and clean up on navigation. See the [frontend plan](UC005_Frontend_Plan.md). |
+| React feed and API adapter | Mount the public screen, request batches, manage card interactions, and clean up on navigation. See the [frontend plan](UC005_Frontend_Plan.md). |
 
 ### 2.4. Diagrams
 
-UC005 diagrams describe the end-to-end target, including the still-planned React frontend. Backend endpoints are now implemented; participant filenames remain the integration boundaries. Backend participants use existing or proposed file paths.
+UC005 diagrams describe the end-to-end target, including the React frontend. Backend and frontend are implemented; participant filenames remain the integration boundaries. Backend participants use existing or proposed file paths.
 
 | Diagram | PlantUML source | Rendered preview |
 |:---|:---|:---|
