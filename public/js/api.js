@@ -248,3 +248,27 @@ export async function loadShowroom(id, projectId) {
     projects: projectId ? (result ? [projectView(result.project)] : []) : collection.projects.map(projectView),
   };
 }
+
+export async function feedRequest(path, options = {}, publicRead = false) {
+  let response;
+  if (publicRead) {
+    const read = () => fetch(path, { ...options, headers: { ...options.headers, ...(accessToken && { Authorization: `Bearer ${accessToken}` }) } });
+    response = await read();
+    if (response.status === 401) {
+      try {
+        if (!await restoreSession()) globalThis.dispatchEvent?.(new Event('session-ended'));
+        response = await read();
+      } catch (error) {
+        if (options.signal?.aborted) throw error;
+        // Public browsing remains available when session renewal is unavailable.
+        response = await fetch(path, options);
+      }
+      if (response.status === 401) response = await fetch(path, options);
+    }
+  } else {
+    response = await authorizedFetch(path, options);
+  }
+  const result = await response.json().catch(() => null);
+  if (!response.ok || !result) throw Object.assign(new Error(result?.message || 'Could not complete the feed request.'), { status: response.status });
+  return result;
+}

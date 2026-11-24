@@ -6,3 +6,4 @@ test-results/
 *.sqlite-journal
 src/uploads/*
 !src/uploads/a.md
+public/feed-assets/

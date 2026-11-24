@@ -39,7 +39,8 @@ export function createFeedOperations(pool) {
         WHERE p.published AND ($1::timestamptz IS NULL OR (f.created_at, f.id) < ($1::timestamptz, $2::uuid))
         ORDER BY f.created_at DESC, f.id DESC LIMIT $3
       ) SELECT f.id, f.created_at AS "createdAt", ${cursorTime('f')} AS "cursorTime",
-        json_build_object('id', u.id, 'name', u.name) AS author,
+        json_build_object('id', u.id, 'name', u.name, 'showroomId', u.showroom_id,
+          'profileId', profile.public_id) AS author,
         json_build_object('id', p.id, 'title', p.title, 'type', p.type,
           'description', p.description, 'stack', p.stack) AS project,
         CASE WHEN cover.id IS NOT NULL THEN json_build_object('name', cover.name, 'type', cover.type) END AS cover,
@@ -48,6 +49,7 @@ export function createFeedOperations(pool) {
         EXISTS(SELECT 1 FROM portfolio.post_likes l WHERE l.post_id = f.id AND l.user_id = $4) AS "viewerHasLiked"
       FROM page f JOIN portfolio.projects p ON p.id = f.project_id
       JOIN portfolio.users u ON u.id = p.owner_id
+      LEFT JOIN portfolio.profiles profile ON profile.owner_id = u.id
       LEFT JOIN LATERAL (SELECT m.id, m.name, m.type FROM portfolio.project_files m
         WHERE m.project_id = p.id AND m.kind = 'media'
         ORDER BY (m.type LIKE 'image/%') DESC, m.position, m.id LIMIT 1) cover ON true

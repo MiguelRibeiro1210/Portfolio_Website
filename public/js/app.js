@@ -1,4 +1,5 @@
-import { repository, emptyWorkspace, registerAccount, signIn, restoreSession, signOut, createProject, loadProject, updateProject, deleteProject, rememberProject, loadOwnerProfile, saveOwnerProfile, loadPublicProfile, publicCvUrl, showroomPath, showroomFileUrl, loadOwnerShowroom, loadShowroom } from './api.js';
+import { loadFeedBundle } from './feed-loader.js';
+import { repository, emptyWorkspace, registerAccount, signIn, restoreSession, signOut, createProject, loadProject, updateProject, deleteProject, rememberProject, loadOwnerProfile, saveOwnerProfile, loadPublicProfile, publicCvUrl, showroomPath, showroomFileUrl, loadOwnerShowroom, loadShowroom, feedRequest } from './api.js';
 import { showroom, projectPage, studio } from './project.js';
 import { aboutPage } from './cv.js';
 import { authPage } from './auth.js';
@@ -6,6 +7,15 @@ import { escapeHTML as e, icon, link, button, notify, modal, confirmAction } fro
 
 let state = emptyWorkspace();
 let account = null;
+let feedView = null, renderGeneration = 0, workspaceLoadedFor = null;
+function syncFeedAccount() {
+  if (route().page !== 'feed') return;
+  feedView?.updateAccount(account);
+  const heading = document.querySelector('.site-header');
+  if (heading) heading.outerHTML = header('feed');
+  const foot = document.querySelector('.site-footer');
+  if (foot) foot.outerHTML = footer();
+}
 let featuredIndex = 0;
 let savingProject = false, savingProfile = false, workspaceError = '', profileError = '';
 let aboutLoad, editorLoad, visitorLoad;
@@ -31,22 +41,34 @@ function rememberWorkspaceProject(project) {
   else state.projects[index] = project;
 }
 async function loadProfile() {
-  profileError = '';
-  try { state.profile = await loadOwnerProfile(); }
-  catch (error) { profileError = error.message; }
+  const ownerId = account?.id;
+  if (!ownerId) return;
+  try {
+    const profile = await loadOwnerProfile();
+    if (account?.id !== ownerId) return;
+    state.profile = profile; profileError = '';
+  } catch (error) { if (account?.id === ownerId) profileError = error.message; }
 }
 
 async function loadWorkspace() {
-  try { state = await repository.load(); workspaceError = ''; }
-  catch (error) { workspaceError = error.message; }
-  ownerShowroomId = account ? await loadOwnerShowroom().catch(() => null) : null;
+  const ownerId = account?.id;
+  if (!ownerId) return;
+  try {
+    const loaded = await repository.load();
+    const showroomId = await loadOwnerShowroom().catch(() => null);
+    if (account?.id !== ownerId) return;
+    state = loaded; workspaceError = ''; ownerShowroomId = showroomId;
+    workspaceLoadedFor = ownerId;
+  } catch (error) {
+    if (account?.id === ownerId) { workspaceError = error.message; workspaceLoadedFor = null; }
+  }
 }
 let filter = 'all', projectTab = 'specs', aboutTab = 'about', mediaIndex = 0;
 let pendingFiles = [], removedFiles = new Set(), dirty = false, activeUrls = [];
-window.addEventListener('session-ended', () => { account = null; });
+window.addEventListener('session-ended', () => { account = null; state = repository.reset(); workspaceLoadedFor = null; ownerShowroomId = null; syncFeedAccount(); });
 const app = document.querySelector('#app');
-// A fresh visit starts at sign-in; explicit gallery and project links still work.
-if (!location.hash || location.hash === '#') history.replaceState(null, '', `${location.pathname}${location.search}#/signin`);
+// The discovery feed is public; explicit showroom, studio and account routes keep their destinations.
+if (!location.hash || location.hash === '#') history.replaceState(null, '', `${location.pathname}${location.search}#/feed`);
 let wheelDistance = 0, lastWheelAt = 0, slideLockedUntil = 0;
 let swipeStart = null;
 function route() {
@@ -71,9 +93,9 @@ function header(page, profile = state.profile, ownProfile = true, visitor = null
   const canEditCv = page === 'about' && account && ownProfile;
 
   return `<header class="site-header">
-    <a class="wordmark" href="${collection}" aria-label="folio home">folio</a>
+    <a class="wordmark" href="#/feed" aria-label="folio home">folio</a>
     <nav class="nav-left" aria-label="Main navigation">
-      ${link('Discover', visitor ? collection : '#/', 'nav-link')}
+      ${link('Discover', '#/feed', `nav-link ${page === 'feed' ? 'current' : ''}`)}
       <a class="nav-link ${page === 'home' ? 'current' : ''}" href="${collection}">Showroom</a>
       ${about ? `<a class="nav-link ${page === 'about' ? 'current' : ''}" href="${about}">About</a>` : ''}
     </nav>
@@ -93,7 +115,7 @@ function header(page, profile = state.profile, ownProfile = true, visitor = null
 
 function footer(visitor = null) {
   return `<footer class="site-footer">
-    <a href="${visitor ? showroomPath(visitor.id) : '#/'}">folio / Built to be seen.</a>
+    <a href="#/feed">folio / Built to be seen.</a>
     <div>
       ${account && ownerShowroomId && !visitor ? `<a href="${showroomPath(ownerShowroomId)}">View public showroom ↗</a>` : ''}
       <span>© ${new Date().getFullYear()} folio</span>
@@ -135,12 +157,34 @@ const oauthMessages = new Map([
 ]);
 
 async function render() {
+  const generation = ++renderGeneration;
+  feedView?.unmount(); feedView = null;
   activeUrls.forEach(URL.revokeObjectURL); activeUrls=[];
   if (account && route().page === 'signin' && !route().oauth) {
-    history.replaceState(null, '', '#/');
+    history.replaceState(null, '', '#/feed');
     previousHash = location.hash;
   }
   const r=route();
+  if (r.page === 'feed') {
+    document.body.dataset.page = 'feed';
+    document.title = 'Discover — folio';
+    app.innerHTML = `${header('feed')}<main id="main" tabindex="-1"><div id="feed-root"><p class="section-pad" role="status">Loading the discovery feed…</p></div></main>${footer()}`;
+    dirty = false; pendingFiles = []; removedFiles.clear();
+    const container = document.querySelector('#feed-root');
+    try {
+      const { mountFeed } = await loadFeedBundle();
+      if (generation !== renderGeneration || !container.isConnected) return;
+      feedView = mountFeed(container, { request: feedRequest, account });
+    } catch (error) {
+      if (generation === renderGeneration && container.isConnected) container.innerHTML = `<section class="section-pad state-single"><h1>Discover</h1><p role="alert">${e(error.message)}</p>${button('Retry loading feed', 'reload-feed')}</section>`;
+    }
+    return;
+  }
+  if (account && !r.showroomId && ['home', 'studio', 'about', 'project'].includes(r.page) && workspaceLoadedFor !== account.id) {
+    await loadWorkspace();
+    await loadProfile();
+    if (generation !== renderGeneration) return;
+  }
   const renderedHash = location.hash;
   const isEditing = r.page === 'studio' && r.section === 'projects' && r.id && account;
   let editorError = '';
@@ -348,9 +392,8 @@ function bindForms() {
     try {
       account = await signIn(Object.fromEntries(new FormData(authForm)));
       state = repository.reset();
-      await loadWorkspace();
-      await loadProfile();
-      if (route().page === 'signin') location.hash = '/';
+      workspaceLoadedFor = null;
+      if (route().page === 'signin') location.hash = '/feed';
       else await render();
     } catch (error) {
       feedback.textContent = error.message || 'Could not sign in.';
@@ -537,7 +580,9 @@ document.addEventListener('click',async event=>{
         ownerShowroomId = null;
         dirty = false;
         workspaceError = '';
-        location.hash = '/signin';
+        workspaceLoadedFor = null;
+        if (route().page === 'feed') syncFeedAccount();
+        else location.hash = '/feed';
       } finally {
         target.disabled = false;
       }
@@ -563,6 +608,7 @@ document.addEventListener('click',async event=>{
         } finally { savingProject = false; }
       });
     }
+    if (action === 'reload-feed') await render();
     if (action === 'reload-showroom') { visitorLoad = undefined; await render(); }
     if (action === 'reload-project') { editorLoad = undefined; await render(); }
     if(action==='add-project')location.hash='/studio';
@@ -594,13 +640,16 @@ window.addEventListener('hashchange',async()=>{
 });
 window.addEventListener('beforeunload',event=>{if(dirty){event.preventDefault();event.returnValue='';}});
 app.innerHTML='<main class="initial-loading"><span class="wordmark">folio</span><div class="loading-bar"></div><p>Making room for your work…</p></main>';
+const restoration = restoreSession().then(account => ({ account }), error => ({ error }));
+// Public feed loading and session restoration progress independently.
+const initialFeed = route().page === 'feed';
+if (initialFeed) await render();
 try {
-  account = await restoreSession();
-  if (account) {
-    await loadWorkspace();
-    await loadProfile();
-  }
+  const restored = await restoration;
+  if (restored.error) throw restored.error;
+  account = restored.account;
 } catch {
-  notify('Could not restore your session. Please sign in again.');
+  notify('Could not restore your session. You can still browse public projects.');
 }
-await render();
+if (initialFeed && route().page === 'feed') syncFeedAccount();
+else await render();
