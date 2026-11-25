@@ -1,0 +1,53 @@
+@startuml UC007_Save_Collaborators_Sequence
+!theme plain
+title UC007 — Save project collaborators
+
+actor "Creator or another owner" as Editor
+participant "public/js/app.js" as App
+participant "public/js/api.js" as Client
+participant "src/routes/project.routes.js" as API
+participant "src/middleware/requireAuth.js" as Auth
+participant "src/services/projectService.js" as Service
+participant "src/domain/projectRules.js" as Rules
+participant "src/db/database.js" as Data
+database PostgreSQL as DB
+
+note over App, API
+  Collaborators are saved in the existing project request.
+  UC002 uses POST /api/projects.
+  UC003 uses PUT /api/projects/:id with If-Match.
+end note
+
+Editor -> App : Enter a teammate’s Folio email
+App -> Client : Look up the exact email
+Client -> API : POST /api/projects/collaborators/lookup
+API -> Auth : Verify active session
+Auth --> API : Identify editor
+API -> Data : Look up the Folio account
+Data --> API : Name, email, and public showroom ID
+API --> Client : Matching account
+Client --> App : Display name and email for selection
+
+Editor -> App : Select Folio accounts and roles,\nadd optional notes, and click Save changes
+App -> Client : Submit project data and collaboration fields
+Client -> API : Send authenticated multipart project request
+API -> Auth : Verify active session
+Auth --> API : Identify editor
+API -> Service : Create or update the project
+Service -> Rules : Validate collaborator entries and notes
+Rules --> Service : Validated collaboration data
+Service -> Data : Save project and collaboration changes
+Data -> DB : Resolve accounts and check membership and revision on edit
+Data -> DB : Save project, notes, and memberships in one transaction
+DB --> Data : Commit project and collaborators
+Data --> Service : Saved project
+Service --> API : Project with updated collaborators
+API --> Client : Saved project response and ETag
+Client --> App : Refresh saved project
+App --> Editor : Display updated collaboration settings
+
+note over Data, DB
+  Published projects appear in each current collaborator’s showroom.
+end note
+
+@enduml

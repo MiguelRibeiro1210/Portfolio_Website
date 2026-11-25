@@ -12,12 +12,17 @@ class "User Account" as UserAccount {
   createdAt
 }
 
+class "Project Collaboration" as ProjectCollaboration {
+    role
+}
+
 class Project {
     title
     showcase type
     description
     tech stack
     published
+    collaborationNotes
     createdAt
 }
 
@@ -88,7 +93,7 @@ class "Provider Identity" as ProviderIdentity {
 
 UserAccount "1" -- "0..*" ProviderIdentity : links
 
-UserAccount "1" -- "0..*" Project : owns
+UserAccount "1" -- "0..*" Project : creates
 UserAccount "1" -- "0..1" Profile : owns
 Project "1" *-- "0..1" Build : has
 UserAccount "1" -- "0..*" SignInSession : starts
@@ -102,6 +107,14 @@ UserAccount "1" -- "0..*" PostLike : gives
 FeedPost "1" *-- "0..*" PostComment : contains
 UserAccount "1" -- "0..*" PostComment : writes
 Profile "1" *-- "0..1" CV : has
+UserAccount "1" -- "0..*" ProjectCollaboration : holds
+Project "1" *-- "1..*" ProjectCollaboration : credits
+
+note left of ProjectCollaboration
+  One membership per project and account.
+  Roles are Owner, Team Member, and Simple Participation.
+  The creator always holds a Owner membership.
+end note
 
 note top of UserAccount
   Registration requires a name, email, and password.
