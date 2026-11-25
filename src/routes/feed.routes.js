@@ -3,9 +3,10 @@ import { optionalAuth } from '../middleware/optionalAuth.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { feedError, requirePostId } from '../domain/feedRules.js';
 import { addComment, getFeed, getFeedComments, setLike } from '../services/feedService.js';
-import { createFileStorage } from '../services/fileStorageService.js';
+import { createProjectStorage } from '../services/projectStorage.js';
+import { sendProjectFile } from '../services/sendProjectFile.js';
 
-export function createFeedRouter(getDatabase, { jwtSecret }, storage = createFileStorage()) {
+export function createFeedRouter(getDatabase, { jwtSecret }, storage = createProjectStorage()) {
   const router = express.Router();
   const authenticate = requireAuth(getDatabase, jwtSecret);
   const optional = optionalAuth(getDatabase, jwtSecret);
@@ -18,13 +19,7 @@ export function createFeedRouter(getDatabase, { jwtSecret }, storage = createFil
     const file = await (await getDatabase()).findFeedCover(requirePostId(req.params.postId));
     if (!file) throw feedError('Feed media not found.', 404);
     res.set('Content-Disposition', 'inline').set('X-Content-Type-Options', 'nosniff').type(file.type);
-    res.sendFile(storage.path(file.id), { cacheControl: false, lastModified: false, etag: false }, error => {
-      if (!error) return;
-      if (res.headersSent) return next(error);
-      res.removeHeader('Content-Disposition');
-      res.removeHeader('Content-Type');
-      next(error.code === 'ENOENT' || error.status === 404 ? feedError('Feed media not found.', 404) : error);
-    });
+    await sendProjectFile(req, res, storage, file);
   });
   router.get('/posts/:postId/comments', optional, async (req, res) => {
     res.json(await getFeedComments(await getDatabase(), req.params.postId, req.query));

@@ -8,7 +8,8 @@ import { pipeline } from 'node:stream/promises';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { isUUID, projectError, projectLimits } from '../domain/projectRules.js';
 import { createProject, updateProject, deleteProject } from '../services/projectService.js';
-import { createFileStorage } from '../services/fileStorageService.js';
+import { createProjectStorage } from '../services/projectStorage.js';
+import { sendProjectFile } from '../services/sendProjectFile.js';
 
 function expectedRevision(req) {
   const header = req.get('If-Match');
@@ -21,7 +22,7 @@ function expectedRevision(req) {
 
 const projectTag = revision => `"${revision}"`;
 
-export function createProjectRouter(getDatabase, { jwtSecret }, storage = createFileStorage()) {
+export function createProjectRouter(getDatabase, { jwtSecret }, storage = createProjectStorage()) {
   const router = express.Router();
   router.use((req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
   router.use(requireAuth(getDatabase, jwtSecret));
@@ -99,12 +100,8 @@ export function createProjectRouter(getDatabase, { jwtSecret }, storage = create
     // Owners can retrieve their own builds regardless of visitor download settings.
     res.set('X-Content-Type-Options', 'nosniff');
     res.type(file.type);
-    res.download(storage.path(file.id), file.name, error => {
-      if (error && !res.headersSent) {
-        if (error.code === 'ENOENT') res.status(404).json({ message: 'File is unavailable.' });
-        else next(error);
-      }
-    });
+    res.attachment(file.name).type(file.type);
+    await sendProjectFile(req, res, storage, file);
   });
   router.get('/:id', async (req, res) => {
     if (!isUUID(req.params.id)) return res.status(404).json({ message: 'Project not found.' });

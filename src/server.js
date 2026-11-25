@@ -5,6 +5,7 @@ import { createAuthRouter } from './routes/auth.routes.js';
 import { createCvRouter } from './routes/cv.routes.js';
 import { createShowroomRouter } from './routes/showroom.routes.js';
 import { createProjectRouter } from './routes/project.routes.js';
+import { createProjectStorage } from './services/projectStorage.js';
 import { createFeedRouter } from './routes/feed.routes.js';
 import { createServer } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
@@ -23,6 +24,7 @@ export function createAppServer({ databaseConfig, database, authConfig = loadAut
     return pendingDatabase;
   };
 
+  projectStorage ??= createProjectStorage();
   const app = express();
   app.disable('x-powered-by');
   app.use('/api', createAuthRouter(getDatabase, authConfig, oauthConfig));

@@ -7,6 +7,7 @@
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "db:migrate": "node src/db/migrate.js",
+    "storage:setup": "node scripts/setup-project-storage.js",
     "test": "node --test tests/*.test.js",
     "test:integration": "node --test tests/registration.test.js tests/login.test.js tests/oauth.test.js tests/projects.test.js tests/cv.test.js tests/feed.test.js",
     "test:e2e": "playwright test",

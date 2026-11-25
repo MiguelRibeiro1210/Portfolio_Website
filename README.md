@@ -7,7 +7,7 @@
 
 A full-stack web platform for developers and students to manage private portfolio projects, downloadable builds, and structured CV entries with strict per-user ownership and session-based security.
 
-**Current implementation:** registration, password login, and application sessions use PostgreSQL. Google and GitHub sign-in are available when configured. Project creation and owner-scoped reads persist in PostgreSQL, with media and an optional build stored on disk. The studio and collection load saved projects after sign-in and reload. Owners can edit or delete saved projects, with revision checks to protect changes from stale editor tabs. The Profile & CV editor saves to PostgreSQL and Supabase Storage, and the public page displays those changes. Default download preferences remain temporary previews. See [Remote database setup](docs/remote_database_setup.md) for the database configuration.
+**Current implementation:** registration, password login, and application sessions use PostgreSQL. Google and GitHub sign-in are available when configured. Project creation and owner-scoped reads persist in PostgreSQL, with media and an optional build stored in a private Supabase Storage bucket. The studio and collection load saved projects after sign-in and reload. Owners can edit or delete saved projects, with revision checks to protect changes from stale editor tabs. The Profile & CV editor saves to PostgreSQL and Supabase Storage, and the public page displays those changes. Default download preferences remain temporary previews. See [Remote database setup](docs/remote_database_setup.md) for the database configuration.
 
 ---
 
@@ -60,7 +60,7 @@ Express REST API (routes, requireAuth, ownership checks)
         │
         ▼  Parameterized SQL ($1, $2, …)
 Supabase PostgreSQL (accounts, sessions, projects, notes, file metadata)
-Server file storage (project media and builds, outside public/)
+Supabase Storage (private project-files bucket; media and builds)
 ```
 ## Database Schema
 
@@ -124,7 +124,17 @@ To edit a project, open it from the studio, make changes, and click **Save chang
 
 Text limits are 200 characters for title, 5,000 for description, 1,000 for tech stack, 10,000 each for idea/release notes, 2,000 for compatibility, and 2,048 for the optional HTTP(S) repository URL. Gallery files allow PNG/JPEG/WebP/GIF/MP4/WebM up to 20 MiB each. The optional build allows ZIP/EXE/APK/DMG/DEB/AppImage/MSI/TAR/GZ up to 100 MiB. Combined uploaded file bytes are limited to 300 MiB, including chunked uploads. The server checks file signatures, fields, and ownership before accepting a project.
 
-Set `PROJECT_UPLOAD_DIR` to a persistent, writable server directory; the default is `src/uploads/projects/`. Files are served only through authenticated owner-scoped API requests. Keep this directory on persistent disk and back it up together with PostgreSQL. File bytes are not stored in Supabase Storage or PostgreSQL. All visitor download settings are retained, but visitor/public download and approval workflows are not implemented; owners can download their own builds regardless of that setting.
+Project file bytes are stored in the private Supabase Storage bucket `project-files`; PostgreSQL keeps their IDs, metadata, and project associations. Existing image URLs remain unchanged: the API checks ownership or public visibility, then streams the bucket object to the frontend, including byte ranges for videos. No Supabase storage credentials are sent to the browser. Public build downloads still require the project to be published and the build permission to be `public`.
+
+For Render and other production deployments:
+
+1. Set `SUPABASE_URL` to the Supabase project origin and `SUPABASE_STORAGE_KEY` to its **server-side secret key or legacy service role key**. These are the same settings used for CV storage.
+2. Run `npm run storage:setup` once with these settings. It creates a private `project-files` bucket or verifies the existing bucket is private. It does not change a public bucket automatically. No new PostgreSQL migration is required.
+3. Set `PROJECT_STORAGE_DRIVER=supabase` on Render, then redeploy. Production defaults to Supabase and fails clearly if its credentials are missing. Configured Supabase environments also default to bucket storage. Without Supabase settings, local development uses disk; `PROJECT_STORAGE_DRIVER=local` explicitly selects that mode.
+
+The bucket inherits the Supabase project upload limit. Configure the project's global and bucket limits to cover your intended uploads (20 MiB media and up to 100 MiB builds); the Supabase plan may impose a lower maximum. The app continues to validate signatures and file sizes before upload. Temporary multipart staging directories are removed after requests; permanent project files are not stored on Render's disk in Supabase mode.
+
+Bucket storage applies to new uploads. Existing local files and database records are not automatically migrated.
 
 ---
 
@@ -169,7 +179,7 @@ The script requires the test database URL so integration tests cannot silently s
 
 ## Known Limitations
 
-* File uploads stored locally on disk may not persist across ephemeral container restarts unless backed by external object storage.
+* Explicit local project storage requires persistent disk. Supabase mode persists project files across application restarts; files already lost from ephemeral disk cannot be recovered automatically.
 * Rate limiting, CSRF tokens, and automated deployment are not yet enabled in the baseline build (planned for future hardening).
 
 ---

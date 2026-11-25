@@ -42,7 +42,7 @@ Missing `If-Match` returns `428`. A stale revision returns `412` and asks the ow
 
 - Reuse [UC001 sign-in](../UC001/login/UC001_Login.md) and `req.user.id` for authorization. The client cannot change the project owner.
 - Keep the [existing project schema](../../src/db/migrations/003_create_projects.sql) and add a revision column in [migration 005](../../src/db/migrations/005_add_project_revision.sql), with existing projects starting at revision 1.
-- Reuse `PROJECT_UPLOAD_DIR` and the UC002 file validation and serving paths. New file IDs are generated on the server. Retained media and builds keep their existing IDs.
+- Reuse the UC002 project storage adapter, file validation, and serving paths (private Supabase bucket in production; explicit local storage for development). New file IDs are generated on the server. Retained media and builds keep their existing IDs.
 - Visitor access and build approval remain separate from owner editing. Saving the build permission persists the owner's choice for the visitor workflow.
 - **Delete project** requires confirmation and permanently removes the saved project. Cancel closes the confirmation and sends no request.
 

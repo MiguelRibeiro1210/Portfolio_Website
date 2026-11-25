@@ -1,6 +1,7 @@
 import express from 'express';
 import { isUUID } from '../domain/projectRules.js';
-import { createFileStorage } from '../services/fileStorageService.js';
+import { createProjectStorage } from '../services/projectStorage.js';
+import { sendProjectFile } from '../services/sendProjectFile.js';
 
 function publicProject({ ownerId, notes, build, ...project }) {
   const publicBuild = build && (build.permission === 'public' ? build : { permission: build.permission });
@@ -15,7 +16,7 @@ function notFound(res) {
   return res.status(404).json({ message: 'Showroom, project, or file not found.' });
 }
 
-export function createShowroomRouter(getDatabase, storage = createFileStorage()) {
+export function createShowroomRouter(getDatabase, storage = createProjectStorage()) {
   const router = express.Router();
   router.use((req, res, next) => {
     // A project can be hidden or a build permission changed at any time.
@@ -50,21 +51,15 @@ export function createShowroomRouter(getDatabase, storage = createFileStorage())
     if (file.kind === 'build') res.attachment(file.name);
     else res.set('Content-Disposition', 'inline');
     res.type(file.type).set('X-Content-Type-Options', 'nosniff');
-    res.sendFile(storage.path(file.id), { cacheControl: false, lastModified: false }, error => {
-      if (!error) return;
-      if (res.headersSent) return next(error);
-      res.removeHeader('Content-Disposition');
-      res.removeHeader('Content-Type');
-      if (error.code === 'ENOENT' || error.status === 404) return notFound(res);
-      next(error);
-    });
+    await sendProjectFile(req, res, storage, file);
   });
 
   router.use((error, req, res, next) => {
     if (res.headersSent) return next(error);
-    const rangeNotSatisfiable = error.status === 416;
-    res.status(rangeNotSatisfiable ? 416 : 500).json({
-      message: rangeNotSatisfiable ? 'Invalid file range.' : 'Unable to load the showroom.',
+    if (error.status === 404) return notFound(res);
+    const status = [416, 503].includes(error.status) ? error.status : 500;
+    res.status(status).json({
+      message: status === 416 ? 'Invalid file range.' : 'Unable to load the showroom.',
     });
   });
   return router;

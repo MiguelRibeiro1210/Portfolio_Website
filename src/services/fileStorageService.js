@@ -23,7 +23,7 @@ export function createFileStorage(directory = process.env.PROJECT_UPLOAD_DIR || 
   };
 }
 
-async function detectFileType(file) {
+export async function detectFileType(file) {
   const handle = await open(file.path, 'r');
   const head = Buffer.alloc(512);
   let tail = Buffer.alloc(0);

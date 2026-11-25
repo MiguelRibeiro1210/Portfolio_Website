@@ -77,7 +77,7 @@ The `201 Created` response returns `{ "project": { ... } }` containing the serve
 - The editor accepts one optional build and submits it as `build`. The API returns a nullable `build` object; the client maps it to the existing view's `builds` array.
 - Preserve the existing visibility choice. The documented create-and-display path selects **Show in the collection**. Draft creation is also supported, without displaying the draft in the collection.
 - This use case displays projects on the authenticated owner's portfolio page. Public profile discovery, visitor access, download approval workflows, project editing/deletion, and profile/CV editing are separate work.
-- File bytes are stored under `PROJECT_UPLOAD_DIR` (default `src/uploads/projects/`), outside the public directory. Use persistent disk when hosting and back it up with PostgreSQL. The gallery accepts 1–10 files and combined uploads are limited to 300 MiB. PostgreSQL retains project data, file metadata, and associations. All file reads require an authenticated owner; visitor access is separate.
+- Production file bytes are stored in the private Supabase Storage bucket `project-files`; PostgreSQL retains project data, file IDs, metadata, and associations. Existing API routes check ownership/publication before streaming images, videos, or permitted builds from the bucket. `PROJECT_UPLOAD_DIR` remains available for explicit local development storage. The gallery accepts 1–10 files and combined uploads are limited to 300 MiB, subject to Supabase project limits. See the README storage setup instructions.
 
 ## 2. Analysis and Design
 
