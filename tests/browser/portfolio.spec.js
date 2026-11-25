@@ -42,7 +42,9 @@ async function saveProject(page,{title='A real project',type='open',permission='
   await page.getByLabel('Project title').fill(title);
   await page.locator(`input[name=type][value=${type}]`).check();
   await page.getByLabel('Short description').fill('A project added through the local editor.');
-  await page.getByLabel('Tech stack').fill('JavaScript, CSS');
+  await page.getByLabel('Technology 1', { exact: true }).fill('JavaScript');
+  await page.getByRole('button', { name: 'Add technology' }).click();
+  await page.getByLabel('Technology 2', { exact: true }).fill('CSS');
   await page.locator('#media-input').setInputFiles({ name: 'project.png', mimeType: 'image/png', buffer: image });
   await page.getByLabel('Download permission').selectOption(permission);
   await page.getByLabel('Show in the collection').check();
@@ -91,7 +93,7 @@ test('create a project, filter the collection, and reload saved details',async (
   await page.getByRole('tab',{name:'Release notes'}).click();
   await expect(page.getByRole('tabpanel')).toContainText('Release notes will appear here.');
   await page.getByRole('tab',{name:'Technical details'}).click();
-  await expect(page.getByRole('tabpanel')).toContainText('JavaScript, CSS');
+  await expect(page.getByRole('tabpanel').locator('.tech-tag')).toHaveText(['JavaScript', 'CSS']);
   await page.reload();
   await expect(page.locator('h1')).toHaveText('A real project');
   await expect(page.locator('.media-view img')).toBeVisible();
@@ -235,7 +237,7 @@ test('optional notes and build are saved with ordered gallery media and owner do
   await navigate(page,'/studio');
   await page.getByLabel('Project title').fill('Media project');
   await page.getByLabel('Short description').fill('A gallery and a release.');
-  await page.getByLabel('Tech stack').fill('JavaScript');
+  await page.getByLabel('Technology 1', { exact: true }).fill('JavaScript');
   await page.getByLabel('Download permission').selectOption('none');
   await page.locator('summary').click();
   await page.getByLabel('The idea',{exact:true}).fill('A saved idea.');
@@ -269,7 +271,7 @@ test('drafts stay in the studio and cancelling does not create a project',async 
   await navigate(page,'/studio');
   await page.getByLabel('Project title').fill('Draft project');
   await page.getByLabel('Short description').fill('Not in the collection.');
-  await page.getByLabel('Tech stack').fill('CSS');
+  await page.getByLabel('Technology 1', { exact: true }).fill('CSS');
   await page.locator('#media-input').setInputFiles({name:'draft.png',mimeType:'image/png',buffer:image});
   await page.getByLabel('Show in the collection').uncheck();
   await page.getByRole('button',{name:'Save changes'}).click();
@@ -285,7 +287,9 @@ test('a failed submission retains fields and files and can be retried',async ({p
   await navigate(page,'/studio');
   await page.getByLabel('Project title').fill('Retry project');
   await page.getByLabel('Short description').fill('Keep these details.');
-  await page.getByLabel('Tech stack').fill('JavaScript');
+  await page.getByLabel('Technology 1', { exact: true }).fill('JavaScript');
+  await page.getByRole('button', { name: 'Add technology' }).click();
+  await page.getByLabel('Technology 2', { exact: true }).fill('Spring Boot');
   await page.locator('#media-input').setInputFiles({name:'retry.png',mimeType:'image/png',buffer:image});
   // Simulate a dropped response before any backend mutation.
   await page.route('**/api/projects', route => route.abort('connectionfailed'), { times: 1 });
@@ -293,6 +297,7 @@ test('a failed submission retains fields and files and can be retried',async ({p
   await page.getByRole('button',{name:'Save changes'}).click();
   await expect(page.getByLabel('Project title')).toHaveValue('Retry project');
   await expect(page.locator('#pending-media')).toContainText('retry.png');
+  await expect(page.getByLabel('Technology 2', { exact: true })).toHaveValue('Spring Boot');
   await expect(page.getByRole('button',{name:'Save changes'})).toBeEnabled();
   await page.getByRole('button',{name:'Save changes'}).click();
   await expect(page.locator('.draft-chip.active')).toContainText('Retry project');
@@ -437,4 +442,85 @@ test('keyboard navigation works and the system states preview is inaccessible',a
   await page.getByRole('tab',{name:'About',exact:true}).focus();await page.keyboard.press('ArrowRight');
   await expect(page.getByRole('tab',{name:'Projects',exact:true})).toHaveAttribute('aria-selected','true');
 
+});
+
+test('technology fields persist as chips and long showroom copy stays compact', async ({ page, browser }, info) => {
+  const id = await saveProject(page, { title: 'Compact showroom project' });
+  const description = 'A deliberately long description that belongs on the project page. '.repeat(45).trim();
+  const story = 'The complete project story is available in the detailed view. '.repeat(35).trim();
+  await page.getByLabel('Short description').fill(description);
+  await page.locator('.more-details summary').click();
+  await page.getByLabel('The idea', { exact: true }).fill(story);
+  await page.getByLabel('Technology 1', { exact: true }).fill('Spring Boot');
+  await page.getByLabel('Technology 2', { exact: true }).fill('Temporary');
+  await page.getByRole('button', { name: 'Remove technology 2', exact: true }).click();
+  await expect(page.getByLabel('Technology 1', { exact: true })).toBeFocused();
+  for (const [index, value] of ['React (TypeScript)', 'Tauri', 'Java 17', 'H2'].entries()) {
+    await page.getByRole('button', { name: 'Add technology', exact: true }).click();
+    const input = page.getByLabel(`Technology ${index + 2}`, { exact: true });
+    await expect(input).toBeFocused();
+    await input.fill(value);
+  }
+  await page.getByRole('button', { name: 'Add technology', exact: true }).click();
+  await page.getByRole('button', { name: 'Save changes', exact: true }).click();
+  await expect(page.getByText('Project saved.', { exact: true }).last()).toBeVisible();
+  await page.reload();
+  await expect(page.locator('[name=technology]')).toHaveCount(5);
+  await expect(page.getByLabel('Technology 2', { exact: true })).toHaveValue('React (TypeScript)');
+  await navigate(page, '/');
+  await expect(page.locator('.featured-description')).toHaveText(description);
+  await expect(page.locator('.featured-story')).toHaveCount(0);
+  const height = await page.locator('.featured-description').evaluate(el => ({ height: el.getBoundingClientRect().height, lineHeight: parseFloat(getComputedStyle(el).lineHeight) }));
+  expect(height.height).toBeLessThanOrEqual(height.lineHeight * 4 + 2);
+  const cardHeight = await page.locator('.project-card > p:not(.eyebrow)').evaluate(el => ({ height: el.getBoundingClientRect().height, lineHeight: parseFloat(getComputedStyle(el).lineHeight) }));
+  expect(cardHeight.height).toBeLessThanOrEqual(cardHeight.lineHeight * 4 + 2);
+  await expect(page.locator('.featured-links .tech-tag')).toHaveCount(5);
+  await expect(page.locator('.featured-links')).toContainText('+1 more');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+  await page.screenshot({ path: info.outputPath('compact-showroom.png'), fullPage: true });
+  const publicLink = await page.getByRole('link', { name: 'View public showroom' }).getAttribute('href');
+  const visitor = await browser.newPage();
+  try {
+    await visitor.goto(new URL(publicLink, page.url()).href);
+    await expect(visitor.locator('.featured-story')).toHaveCount(0);
+    await visitor.getByRole('link', { name: 'Explore project' }).click();
+    await expect(visitor.locator('.project-story')).toHaveText(story);
+    await expect(visitor.getByText(description, { exact: true })).toBeVisible();
+    await visitor.getByRole('tab', { name: 'Technical details' }).click();
+    await expect(visitor.locator('.tech-tag')).toHaveText(['Spring Boot', 'React (TypeScript)', 'Tauri', 'Java 17', 'H2']);
+    await visitor.goto('/#/feed');
+    const post = visitor.locator('.feed-post').filter({ has: visitor.getByRole('heading', { name: 'Compact showroom project', exact: true }) });
+    await expect(post.locator('.tech-tag')).toHaveText(['Spring Boot', 'React (TypeScript)', 'Tauri', 'Java 17', 'H2']);
+  } finally { await visitor.close(); }
+  await navigate(page, `/studio/${id}`);
+  await page.getByLabel('Technology 1', { exact: true }).fill('Java, React');
+  await page.getByRole('button', { name: 'Save changes', exact: true }).click();
+  await expect(page.getByText('Use a separate field for each technology.', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('Technology 1', { exact: true })).toHaveValue('Java, React');
+});
+
+test('security buttons use server provider state after reload and OAuth callbacks', async ({ page }) => {
+  await ensureSignedIn(page);
+  let linkedProviders = [];
+  await page.route('**/api/me', async route => {
+    const response = await route.fetch();
+    const body = await response.json();
+    await route.fulfill({ response, json: { user: { ...body.user, linkedProviders } } });
+  });
+  for (const providers of [[], ['google'], ['github'], ['google', 'github']]) {
+    linkedProviders = providers;
+    await page.goto('/#/studio?section=security&oauth=linked');
+    await page.reload();
+    for (const [provider, name] of [['google', 'Google'], ['github', 'GitHub']]) {
+      if (providers.includes(provider)) {
+        await expect(page.getByRole('button', { name: `${name} connected`, exact: true })).toBeDisabled();
+        await expect(page.locator(`form[action="/api/oauth/${provider}/link"]`)).toHaveCount(0);
+      } else await expect(page.getByRole('button', { name: `Connect ${name}`, exact: true })).toBeEnabled();
+    }
+  }
+  linkedProviders = ['google'];
+  await page.goto('/#/studio?section=security&oauth=failed');
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'Connect GitHub', exact: true })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Google connected', exact: true })).toBeDisabled();
 });

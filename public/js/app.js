@@ -1,3 +1,4 @@
+import { technologyField, serializeTechStack } from './tech-stack.js';
 import { loadFeedBundle } from './feed-loader.js';
 import { repository, emptyWorkspace, registerAccount, signIn, restoreSession, signOut, createProject, loadProject, updateProject, deleteProject, rememberProject, loadOwnerProfile, saveOwnerProfile, loadPublicProfile, publicCvUrl, showroomPath, showroomFileUrl, loadOwnerShowroom, loadShowroom, feedRequest } from './api.js';
 import { showroom, projectPage, studio } from './project.js';
@@ -301,6 +302,30 @@ function bindForms() {
   const projectForm = document.querySelector('#project-form');
   if(projectForm) {
     projectForm.onsubmit=saveProject;
+    const technologyFields = projectForm.querySelector('[data-technology-fields]');
+    const technologyEditor = projectForm.querySelector('.technology-editor');
+    technologyEditor.onclick = event => {
+      const add = event.target.closest('[data-add-technology]');
+      const remove = event.target.closest('[data-remove-technology]');
+      if (!add && !remove) return;
+      if (add) {
+        technologyFields.insertAdjacentHTML('beforeend', technologyField('', technologyFields.children.length + 1));
+        technologyFields.lastElementChild.querySelector('input').focus();
+      } else {
+        const row = remove.closest('[data-technology-row]');
+        const previous = row.previousElementSibling;
+        const next = row.nextElementSibling;
+        if (technologyFields.children.length === 1) row.querySelector('input').value = '';
+        else row.remove();
+        [...technologyFields.children].forEach((item, index) => {
+          item.querySelector('label span').textContent = `Technology ${index + 1}`;
+          item.querySelector('button').setAttribute('aria-label', `Remove technology ${index + 1}`);
+        });
+        (previous || next || row).querySelector('input').focus();
+      }
+      dirty = true;
+    };
+
     if (!account) {
       projectForm.querySelectorAll('input,textarea,select,button').forEach(control => { control.disabled = true; });
     }
@@ -425,7 +450,8 @@ async function saveProject(event) {
   submitButton.disabled = true;
   try {
     const form = new FormData(formElement);
-    const p = Object.fromEntries(['title','type','description','stack','story','compatibility','source','releaseNotes','permission'].map(key=>[key,String(form.get(key)||'').trim()]));
+    const p = Object.fromEntries(['title','type','description','story','compatibility','source','releaseNotes','permission'].map(key=>[key,String(form.get(key)||'').trim()]));
+    p.stack = serializeTechStack(form.getAll('technology'));
     p.published = form.has('published');
     if (!p.title || !p.description || !p.stack) throw new Error('Fill in the title, description, and tech stack.');
     if (p.source && !safeUrl(p.source)) throw new Error('Use an HTTP or HTTPS repository URL.');
