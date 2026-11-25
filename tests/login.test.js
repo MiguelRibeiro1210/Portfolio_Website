@@ -73,7 +73,7 @@ test('login creates, refreshes, expires, and revokes sign-in sessions', {
     assert.equal((await me(expired)).status, 401);
     const profile = await me(accessToken);
     assert.equal(profile.status, 200);
-    assert.deepEqual(await profile.json(), { user: { id: 1, name: account.name, email: account.email } });
+    assert.deepEqual(await profile.json(), { user: { id: 1, name: account.name, email: account.email, linkedProviders: [] } });
 
     const rotated = await Promise.all([post('/refresh', undefined, cookie), post('/refresh', undefined, cookie)]);
     assert.deepEqual(rotated.map(response => response.status).sort(), [200, 401]);

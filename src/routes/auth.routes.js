@@ -61,8 +61,9 @@ export function createAuthRouter(getDatabase, { jwtSecret, secureCookies }, prov
     return sendTokens(res, result);
   });
 
-  router.get('/me', authenticate, (req, res) => {
-    res.json({ user: req.user });
+  router.get('/me', authenticate, async (req, res) => {
+    const linkedProviders = await (await getDatabase()).listLinkedProviders(req.user.id);
+    res.json({ user: { ...req.user, linkedProviders } });
   });
 
   router.post('/refresh', async (req, res) => {

@@ -26,6 +26,7 @@ test('OAuth signs in both providers and requires an explicit link for an existin
   const fetchLocal = globalThis.fetch;
   const base = `http://127.0.0.1:${server.address().port}/api`;
   let challenge;
+  let githubUserId = 456;
   let googleUser = { sub: 'google-123', name: 'Google User', email: 'google@example.com', email_verified: true };
   t.mock.method(globalThis, 'fetch', async (url, options) => {
     if (url === 'https://oauth2.googleapis.com/token' || url === 'https://github.com/login/oauth/access_token') {
@@ -34,7 +35,7 @@ test('OAuth signs in both providers and requires an explicit link for an existin
     }
     assert.equal(options.headers.Authorization, 'Bearer provider-token');
     if (url === 'https://openidconnect.googleapis.com/v1/userinfo') return Response.json(googleUser);
-    if (url === 'https://api.github.com/user') return Response.json({ id: 456, login: 'github-user' });
+    if (url === 'https://api.github.com/user') return Response.json({ id: githubUserId, login: 'github-user' });
     assert.equal(url, 'https://api.github.com/user/emails');
     return Response.json([{ email: 'github@example.com', primary: true, verified: true }]);
   });
@@ -72,6 +73,7 @@ test('OAuth signs in both providers and requires an explicit link for an existin
   assert.equal(googleLogin.headers.get('Location'), '/');
   const account = await currentAccount(cookie(googleLogin, 'portfolio_refresh'));
   assert.equal(account.email, 'google@example.com');
+  assert.deepEqual(account.linkedProviders, ['google']);
 
   const githubLogin = await callback('github', await start('github'));
   assert.equal(githubLogin.headers.get('Location'), '/');
@@ -97,4 +99,12 @@ test('OAuth signs in both providers and requires an explicit link for an existin
   const linkedAccount = await currentAccount(cookie(linkedLogin, 'portfolio_refresh'));
   assert.equal(linkedAccount.email, credentials.email);
   assert.equal(linkedAccount.name, credentials.name);
+  assert.deepEqual(linkedAccount.linkedProviders, ['google']);
+  githubUserId = 789;
+  const nextLogin = await post('/login', credentials);
+  const nextRefresh = cookie(nextLogin, 'portfolio_refresh');
+  assert.match((await callback('github', await start('github', nextRefresh))).headers.get('Location'), /oauth=linked$/);
+  const both = await currentAccount(nextRefresh);
+  assert.deepEqual(both.linkedProviders, ['github', 'google']);
+  assert.deepEqual(Object.keys(both).sort(), ['email', 'id', 'linkedProviders', 'name']);
 });

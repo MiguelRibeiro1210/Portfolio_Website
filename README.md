@@ -92,7 +92,7 @@ Authentication, project CRUD, public showrooms, profiles/CVs, and the UC005 feed
 | :--- | :--- | :--- | :--- |
 | `POST` | `/api/register` | No | Register a new user (`201`, `400`, `409`) |
 | `POST` | `/api/login` | No | Verify credentials and issue an access token and refresh cookie (`200`, `400`, `401`) |
-| `GET` | `/api/me` | Bearer token | Get the signed-in account (`200`, `401`) |
+| `GET` | `/api/me` | Bearer token | Get the signed-in account and `user.linkedProviders` (`200`, `401`) |
 | `POST` | `/api/refresh` | Refresh cookie | Rotate the refresh token and issue an access token (`200`, `401`) |
 | `POST` | `/api/logout` | Refresh cookie when present | Revoke the session and clear the cookie (`204`) |
 | `GET` | `/api/projects` | Yes (owner) | List projects owned by the signed-in user (`WHERE owner_id = $1`) |
@@ -116,7 +116,7 @@ Authentication, project CRUD, public showrooms, profiles/CVs, and the UC005 feed
 
 ## Creating a Project (UC002)
 
-Sign in, open **Add project**, enter the title, description, tech stack, and showcase type, and select 1–10 gallery files. Notes and one build are optional. **Show in the collection** is selected initially; clear it to save a draft visible only in your studio. Select **Save changes** to persist the project. See the [UC002 contract and workflow](docs/UC002/createProject/UC002_Create_Project.md).
+Sign in, open **Add project**, enter the title, description, tech stack, and showcase type, and select 1–10 gallery files. Notes and one build are optional. **Show in the collection** is selected initially; clear it to save a draft visible only in your studio. Select **Save changes** to persist the project. Enter each technology in its own field using **Add technology**; saved technologies appear as tags in the showroom, project details, and feed. Showroom descriptions are limited to a four-line preview, with the complete description and story on the project page. See the [UC002 contract and workflow](docs/UC002/createProject/UC002_Create_Project.md).
 
 `POST /api/projects` accepts `multipart/form-data` with one JSON `project` text part, repeated `media` file parts, and at most one `build` file part. Include `Authorization: Bearer <accessToken>`. A successful response contains `{ "project": { ... } }`, with a server-generated ID, `ownerId`, ordered media metadata, and nullable `notes` and `build` objects. The client refreshes an expired access token using the existing session cookie.
 

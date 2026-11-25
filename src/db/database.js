@@ -229,6 +229,10 @@ export async function openDatabase(config) {
       );
       return row.id;
     },
+    async listLinkedProviders(userId) {
+      const { rows } = await pool.query('SELECT provider FROM portfolio.provider_identities WHERE user_id = $1 ORDER BY provider', [userId]);
+      return rows.map(row => row.provider);
+    },
     findUserByEmail(email) {
       return first('SELECT id, password_hash FROM portfolio.users WHERE email = $1', [email]);
     },

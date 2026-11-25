@@ -530,7 +530,7 @@ body[data-page=reset] .site-footer {
   line-height: 1.02;
 }
 .featured-copy h2 .placeholder { color: var(--ink); font-weight: 700; }
-.featured-copy .featured-description { font-size: clamp(15px, 1.8vw, 23px); line-height: 1.35; margin: 8px 0 15px; }
+.featured-copy .featured-description { font-size: clamp(15px, 1.8vw, 23px); line-height: 1.35; margin: 8px 0 15px; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; overflow: hidden; overflow-wrap: anywhere; }
 .featured-story { font-size: 12px; margin-bottom: 10px; }
 .featured-actions { margin: 18px 0 13px; }
 .featured-actions .btn { min-height: 36px; }
@@ -876,3 +876,19 @@ input[type=checkbox], input[type=radio] { accent-color: var(--button); }
   .theme-switch { appearance: auto; }
   .theme-switch::before { content: none; }
 }
+
+.tech-tags { display: flex; flex-wrap: wrap; gap: 7px; list-style: none; margin: 0; padding: 0; min-width: 0; }
+.tech-tag { display: inline-block; max-width: 100%; padding: 5px 9px; border: 1px solid var(--line); border-radius: 4px; font-size: 11px; line-height: 1.5; color: var(--muted); overflow-wrap: anywhere; }
+.featured-links { display: block; }
+.project-card > p:not(.eyebrow) { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; overflow: hidden; overflow-wrap: anywhere; }
+.project-card-bottom > div { min-width: 0; }
+.featured-links .tech-tag, .project-card-bottom .tech-tag { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tech-tag-more { border-style: dashed; }
+.technology-editor { min-width: 0; }
+.technology-editor legend { margin-bottom: 8px; }
+.technology-editor > .fine-print { margin-bottom: 12px; }
+.technology-row { display: flex; align-items: end; gap: 10px; margin-bottom: 12px; min-width: 0; }
+.technology-row .field { flex: 1; min-width: 0; margin: 0; }
+.technology-row .icon-btn { flex-shrink: 0; min-width: 40px; min-height: 42px; }
+.provider-connections { display: flex; flex-wrap: wrap; gap: 12px; margin: 16px 0; }
+.provider-connected:disabled { opacity: 1; color: var(--muted); cursor: default; }
