@@ -1,15 +1,27 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { appendUnique, createFeedApi, matchesSearch } from '../frontend/feed/feedApi.js';
+import { appendUnique, createFeedApi, suggestionUrl } from '../frontend/feed/feedApi.js';
 
-test('feed search matches loaded project and creator text without changing pagination', () => {
-  const post = { id: 'p', author: { name: 'Zoë Rivera' }, project: { title: 'Focus Timer', description: 'A desktop tool', stack: 'React, JavaScript' } };
-  assert.equal(matchesSearch(post, 'zoe'), true);
-  assert.equal(matchesSearch(post, 'RIVERA focus'), true);
-  assert.equal(matchesSearch(post, 'timer react'), true);
-  assert.equal(matchesSearch(post, 'another creator'), false);
-  assert.equal(matchesSearch(post, ' '), true);
+test('search suggestions use public destinations and feed pages retain unique posts', () => {
+  assert.equal(suggestionUrl({type:'project', id:'p', showroomId:'s'}), '#/showroom/s/p');
+  assert.equal(suggestionUrl({type:'user', showroomId:'s', profileId:'cv'}), '#/about/cv?showroom=s');
+  assert.equal(suggestionUrl({type:'user', showroomId:'a/b', profileId:null}), '#/showroom/a%2Fb');
   assert.deepEqual(appendUnique([{ id: 'one' }], [{ id: 'one' }, { id: 'two' }, { id: 'two' }]), [{ id: 'one' }, { id: 'two' }]);
+});
+
+test('search adapter queries the database endpoint independently of feed pagination', async () => {
+  const calls = [];
+  const api = createFeedApi(async (...args) => { calls.push(args); return {query:'José & Co',suggestions:[],hasMore:false}; });
+  const controller = new AbortController();
+  await api.suggestions('José & Co', controller.signal);
+  assert.equal(calls[0][0], '/api/search/suggestions?q=Jos%C3%A9%20%26%20Co&limit=10');
+  assert.equal(calls[0][1].signal, controller.signal);
+  assert.equal(calls[0][2], true);
+  await assert.rejects(createFeedApi(async()=>({query:'old',suggestions:[],hasMore:false})).suggestions('new'), /invalid response/);
+  const user = {type:'user',id:'u',label:'Same name',accountName:'Same name',email:'account@example.com',showroomId:'u',profileId:null};
+  const result = {query:'Same name',suggestions:[user],hasMore:false};
+  assert.deepEqual(await createFeedApi(async()=>result).suggestions('Same name'),result);
+  await assert.rejects(createFeedApi(async()=>({...result,suggestions:[{...user,email:undefined}]})).suggestions('Same name'), /invalid response/);
 });
 
 test('feed adapter uses only documented endpoints and forwards cancellation and auth mode', async () => {

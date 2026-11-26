@@ -1,4 +1,5 @@
 import express from 'express';
+import { createSearchRouter } from './routes/search.routes.js';
 import { openDatabase } from './db/database.js';
 import { getDatabaseConfig, loadEnvironment, loadAuthConfig, loadOAuthConfig } from './config/env.js';
 import { createAuthRouter } from './routes/auth.routes.js';
@@ -31,6 +32,7 @@ export function createAppServer({ databaseConfig, database, authConfig = loadAut
   app.use('/api', createCvRouter(getDatabase, authConfig, cvStorage));
   app.use('/api/projects', createProjectRouter(getDatabase, authConfig, projectStorage));
   app.use('/api/showrooms', createShowroomRouter(getDatabase, projectStorage));
+  app.use('/api/search', createSearchRouter(getDatabase));
   app.use('/api/feed', createFeedRouter(getDatabase, authConfig, projectStorage));
   app.use(async (req, res) => {
     if (req.method !== 'GET' && req.method !== 'HEAD') {

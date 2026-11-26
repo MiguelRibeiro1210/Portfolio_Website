@@ -1,3 +1,4 @@
+import { createSearchOperations } from './searchDatabase.js';
 import { randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
 import { projectError } from '../domain/projectRules.js';
@@ -99,6 +100,7 @@ export async function openDatabase(config) {
 
   return {
     ...createFeedOperations(pool),
+    ...createSearchOperations(pool),
     findOwnerProfile(ownerId) {
       return first(`${profileSelect} WHERE p.owner_id = $1`, [ownerId]);
     },

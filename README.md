@@ -146,15 +146,15 @@ Run `npm run db:migrate` before restarting this backend. Migration `007_create_f
 
 Covers reuse the first gallery image, or the first video if no image exists. Feed media endpoints never serve builds. Like/unlike requires an active session and returns `{ likeCount, viewerHasLiked }`. Comments require JSON with only `text` (1–1,000 trimmed Unicode characters); the server derives the author. Comments are paginated separately in batches of 20. Feed responses use `Cache-Control: no-store`.
 
-See the [UC005 API and design](docs/UC005/projectFeed/UC005_Project_Feed.md) and [future React frontend plan](docs/UC005/projectFeed/UC005_Frontend_Plan.md). The React frontend is mounted only on `#/feed`, which is the default landing page. Existing showroom/studio/profile screens keep their vanilla JavaScript implementation. Search filters project titles/descriptions/tech stacks and creator names in already loaded posts; **Load more projects to search** requests another normal cursor page. It does not query a global user/project search endpoint or eagerly download the full feed. No backend search changes are included.
+See the [UC005 API and design](docs/UC005/projectFeed/UC005_Project_Feed.md) and [future React frontend plan](docs/UC005/projectFeed/UC005_Frontend_Plan.md). The React frontend is mounted only on `#/feed`, which is the default landing page. Existing showroom/studio/profile screens keep their vanilla JavaScript implementation. Search uses the UC006 database endpoint and displays user/project suggestions beneath the bar. Search leaves feed cards and cursor pagination unchanged.
 
 Use Node.js 20.19+ or 22.12+ for Vite. `npm start`, `npm run dev`, and `npm run test:e2e` build the feed automatically. `npm run build:feed` produces the manifest and hashed assets in the ignored `public/feed-assets/` directory; preserve the other files under `public/`. During feed development, run `npm run dev:feed` in a second terminal to rebuild JSX/CSS changes. Production deployment must build with development dependencies available and include the generated feed assets when serving the existing Express app.
 
 ---
 
-## Search Users and Projects (UC006 — Planned Backend)
+## Search Users and Projects (UC006)
 
-The [UC006 backend documentation and implementation plan](docs/UC006/UC006_Search_Users_And_Projects.md) defines public user/project name suggestions. Matches will appear only beneath the expanded search bar; selecting one opens its public page, and Enter opens the first current suggestion. It will replace loaded-feed filtering in a separate frontend implementation.
+The [UC006 backend](docs/UC006/UC006_Search_Users_And_Projects.md) implements public `GET /api/search/suggestions?q=...&limit=10`. It searches account names, public profile names, and published project titles, ignoring case and accents. Results rank exact names, then prefixes, then substrings; the default limit is 10 (maximum 20). Run `npm run db:migrate` with schema-owner credentials to apply migration 009 before deployment. Matches appear only beneath the expanded search bar; selecting one opens its public page, and Enter opens the first current suggestion. Requests are debounced and cancelled when the query changes or the feed unmounts. User suggestions show the registration email to distinguish identical names; visitors can see this email. Email is display-only and is not searched. Loaded feed cards are not filtered.
 
 ---
 

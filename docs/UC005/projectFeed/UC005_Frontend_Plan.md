@@ -2,7 +2,7 @@
 
 ## 1. Goal and integration boundary
 
-The React feed described here is implemented, using the existing site theme. It is the default landing page; other screens remain in vanilla JavaScript. Search was added as a frontend-only filter over loaded project/creator text, with explicit Load more controls. The feed author projection includes public showroom and nullable profile IDs for navigation. Follow the [UC005 use case and API contract](UC005_Project_Feed.md). Add a public social-style project feed using React, while retaining the existing vanilla JavaScript authentication, collection, studio, project details, and profile screens.
+The React feed described here is implemented, using the existing site theme. It is the default landing page; other screens remain in vanilla JavaScript. Search uses the UC006 database suggestion endpoint without filtering loaded feed cards. The feed author projection includes public showroom and nullable profile IDs for navigation. Follow the [UC005 use case and API contract](UC005_Project_Feed.md). Add a public social-style project feed using React, while retaining the existing vanilla JavaScript authentication, collection, studio, project details, and profile screens.
 
 React owns only the feed container. The current shell owns navigation, account/session state, and the other screens. Do not let the shell's whole-page `innerHTML` rendering replace a mounted React root: unmount it first. Use one React root for the feed, not one root per post. This follows React's [incremental integration guidance](https://react.dev/learn/add-react-to-an-existing-project) and [createRoot lifecycle](https://react.dev/reference/react-dom/client/createRoot).
 
@@ -29,6 +29,7 @@ The filenames below are implemented source modules for the [component diagram](.
 | `frontend/feed/PostMedia.jsx` | Render image/video media with reserved layout space and a missing-media placeholder. |
 | `frontend/feed/LikeButton.jsx` | Own per-post pending/error feedback; request authenticated like/unlike and accept confirmed server state. |
 | `frontend/feed/CommentSection.jsx` | Open/close the comment list, request its independent pages, retain draft input, and display submission feedback. |
+| `frontend/feed/SearchSuggestions.jsx` | Query UC006, render ordered suggestions, cancel stale requests, and navigate current matches without filtering the feed. |
 | `frontend/feed/feedApi.js` | Implement feed/comment reads and interaction requests with fetch, abort signals, contract-shaped results, and session integration. Do not duplicate token storage. |
 
 Reuse the current `public/js/api.js` session mechanism through a shared transport interface: public reads may omit credentials, optional personalized reads can use the in-memory access token, and protected writes can refresh once before requiring sign-in. The bundler must not create an independent bundled copy of the existing session module with different token state. Pass the shared transport and account-state callbacks into `mountFeed` from the existing shell; never expose the raw token as component state or store it in browser persistence.
@@ -67,3 +68,9 @@ On successful submission, clear only the submitted draft and update the count. I
 - For account changes, cancel outdated personalized reads, clear the previous viewer's like flags, and refetch the same loaded pages using the new identity or anonymous transport. Preserve displayed public content, page boundaries, and scroll position; do not fetch the unseen remainder of the feed.
 - Verify the first request/page size, one in-flight next-page request, cursor advancement only on success, deduplication, end-of-feed termination, retry without lost cards, lazy comments/media, and cleanup after navigation.
 - Verify visitors can browse without owner-workspace requests; signed-in interactions persist across reload; drafts/build files stay private; existing UC001/UC002 flows pass after entry routing and bundle-build changes.
+
+## 7. Database search suggestions (UC006)
+
+`frontend/feed/SearchSuggestions.jsx` queries `GET /api/search/suggestions?q=...&limit=10` after a 250 ms typing pause and at least two trimmed characters. The expanded list preserves backend ranking and shows result type plus account/creator context and the registration email on user suggestions. Visitors can see this email; matching remains name-only. Links open existing public profile/showroom/project destinations. Enter opens the first current suggestion, requesting immediately or reusing a pending request if necessary.
+
+Changing or clearing the query aborts the previous request and invalidates its results. Unmounting also aborts requests. Loading, empty results, failures with retry, and informational `hasMore` feedback stay inside the expanded bar. Escape dismisses it; keyboard users can tab through links or use arrow keys. Search does not change feed cards, its cursor, its observer, or its Load more action.

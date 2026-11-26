@@ -3,7 +3,7 @@
 title UC006 — Public user and project suggestions
 
 actor "Visitor / signed-in user" as Viewer
-boundary "Future search client" as Client
+boundary "frontend/feed/SearchSuggestions.jsx" as Client
 participant "src/routes/search.routes.js" as Routes
 participant "src/domain/searchRules.js" as Rules
 participant "src/services/searchService.js" as Service
@@ -12,11 +12,14 @@ database PostgreSQL as DB
 
 Viewer -> Client : Type a user name or project title
 Client -> Routes : GET /api/search/suggestions?q=...&limit=10
-Routes -> Rules : Validate q, limit, repeated/unknown parameters
-
-Rules --> Routes : Trimmed query and bounded limit
 Routes -> Service : Get public suggestions
+Service -> Rules : Validate q, limit, repeated/unknown parameters
+Rules --> Service : Trimmed query and bounded limit
 
+alt Fewer than two query characters
+  Service --> Routes : query, empty suggestions, hasMore: false
+  Routes --> Client : 200; no database lookup
+else Valid searchable query
 Service -> Data : Search account/profile names and published titles
 Data -> DB : BEGIN; SET LOCAL statement_timeout = '2s'
 Data -> DB : One parameterized statement; fixed normalization\nRank exact, then prefix, then substring\nDeduplicate aliases/projects; merge top candidates\nStable global order; LIMIT limit + 1
@@ -26,5 +29,6 @@ Data --> Service : Ordered candidates
 Service -> Service : Allowlisted DTOs; trim extra row; derive hasMore
 Service --> Routes : query, suggestions, hasMore
 Routes --> Client : 200 ordered suggestions / safe 503\nCache-Control: no-store
+end
 
 @enduml

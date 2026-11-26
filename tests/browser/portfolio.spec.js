@@ -39,6 +39,8 @@ async function ensureSignedIn(page) {
 async function saveProject(page,{title='A real project',type='open',permission='public'}={}) {
   await ensureSignedIn(page);
   await navigate(page,'/studio');
+  // The previous editor stays visible while workspace/profile requests complete.
+  await expect(page.getByLabel('Project title')).toHaveValue('');
   await page.getByLabel('Project title').fill(title);
   await page.locator(`input[name=type][value=${type}]`).check();
   await page.getByLabel('Short description').fill('A project added through the local editor.');
@@ -193,6 +195,11 @@ test('a tagged teammate can see the project in their showroom and leave it', asy
 
 test('featured project controls cycle through saved projects',async ({page})=>{
   await saveProject(page,{title:'First project'});
+  // Exercise navigation while the next editor's workspace is still loading.
+  await page.route('**/api/profile/me', async route => {
+    if (route.request().method() === 'GET') await new Promise(resolve => setTimeout(resolve, 750));
+    await route.continue();
+  });
   await saveProject(page,{title:'Second project',type:'private'});
   await navigate(page,'/');
   await expect(page.locator('.featured-copy h2')).toHaveText('First project');

@@ -56,7 +56,7 @@ test('login creates, refreshes, expires, and revokes sign-in sessions', {
     const claims = jwt.decode(accessToken);
     assert.equal(claims.exp - claims.iat, 15 * 60);
 
-    assert.deepEqual(applied, ['001_create_users.sql', '002_create_auth_tables.sql', '003_create_projects.sql', '004_create_profiles.sql', '005_add_project_revision.sql', '006_add_public_showrooms.sql', '007_create_feed_tables.sql', '008_create_project_collaborators.sql']);
+    assert.deepEqual(applied, ['001_create_users.sql', '002_create_auth_tables.sql', '003_create_projects.sql', '004_create_profiles.sql', '005_add_project_revision.sql', '006_add_public_showrooms.sql', '007_create_feed_tables.sql', '008_create_project_collaborators.sql', '009_add_search_indexes.sql']);
     const readSession = async () => (await inspection.query(
       'SELECT * FROM portfolio.sign_in_sessions WHERE id = $1', [claims.sid],
     )).rows[0];

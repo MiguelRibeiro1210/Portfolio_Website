@@ -20,7 +20,7 @@ test.beforeEach(async ({ page }) => {
 });
 test.afterEach(async ({ page }) => expect(page.__errors).toEqual([]));
 
-test('public entry loads one page, search filters loaded creators/projects, and loading more preserves unique cards', async ({ page }, info) => {
+test('database suggestions leave feed cards and pagination unchanged', async ({ page }, info) => {
   await mockSession(page);
   const requests = [];
   const ownerReads = [];
@@ -37,17 +37,24 @@ test('public entry loads one page, search filters loaded creators/projects, and 
   expect(ownerReads).toEqual([]);
   await page.screenshot({ path: info.outputPath('feed-viewport.png') });
   await expect(page.locator('.feed-media img').first()).toHaveAttribute('loading', 'lazy');
+  const searches = [];
+  await page.route('**/api/search/suggestions?*', async route => {
+    const query = new URL(route.request().url()).searchParams.get('q');
+    searches.push(query);
+    await json(route, {query, suggestions:[{type:'project', id:'not-loaded', label:'Project outside this feed', creatorName:'Zoë', showroomId:'public-owner'}], hasMore:true});
+  });
   await page.getByLabel('Search projects or creators').fill('zoe');
-  await expect(page.locator('.feed-post')).toHaveCount(1);
-  await expect(page.locator('.feed-author')).toHaveText('Zoë Rivera');
-  await page.getByLabel('Search projects or creators').fill('Project 12');
-  await expect(page.getByRole('heading', { name: 'No matches in loaded projects.' })).toBeVisible();
+  await expect(page.getByRole('option', {name:'Project outside this feed Project · Zoë'})).toHaveAttribute('href', '#/showroom/public-owner/not-loaded');
+  await expect(page.getByText('More matches available.', {exact:false})).toBeVisible();
+  await page.screenshot({path:info.outputPath('search-suggestions.png')});
+  await expect(page.locator('.feed-post')).toHaveCount(10);
+  await expect(page.getByRole('heading', {name:'Latest projects'})).toBeVisible();
+  expect(searches).toEqual(['zoe']);
   expect(requests).toEqual([null]);
-  await page.getByRole('button', { name: 'Load more projects to search' }).click();
-  await expect(page.locator('.feed-post')).toHaveCount(1);
-  await expect(page.locator('.feed-post h2')).toHaveText('Project 12');
-  await page.getByRole('button', { name: 'Clear search' }).click();
+  await page.locator('.feed-pagination').scrollIntoViewIfNeeded();
   await expect(page.locator('.feed-post')).toHaveCount(12);
+  await page.getByRole('button', { name: 'Clear search' }).click();
+  await expect(page.getByRole('option')).toHaveCount(0);
   await expect(page.getByText('You’re all caught up.')).toBeVisible();
   expect(requests).toEqual([null, 'page-two']);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
@@ -236,10 +243,18 @@ test('real feed interactions persist and names open public project and creator p
     expect(saved.status()).toBe(200);
     const { profile } = await saved.json();
     await visitor.goto('/#/feed');
-    await visitorPost.locator('.feed-author a').click();
+    await visitor.getByLabel('Search projects or creators').fill('Public Feed Creator');
+    const suggestion = visitor.locator(`a[role=option][href^="#/about/${profile.publicId}?"]`);
+    await expect(suggestion.locator('.search-user-email')).toHaveText(email);
+    await suggestion.click();
     await expect(visitor).toHaveURL(new RegExp(`#/about/${profile.publicId}\\?showroom=`));
     await expect(visitor.getByRole('heading', { name: 'Public Feed Creator', exact: true })).toBeVisible();
     await expect(visitor.getByRole('link', { name: 'Edit CV' })).toHaveCount(0);
+    await visitor.goto('/#/feed');
+    await visitor.getByLabel('Search projects or creators').fill(title);
+    await visitor.getByLabel('Search projects or creators').press('Enter');
+    await expect(visitor).toHaveURL(new RegExp(`#/showroom/[^/]+/${project.id}$`));
+    await expect(visitor.getByRole('heading', {name:title, exact:true, level:1})).toBeVisible();
   } finally { await visitor.close(); }
 });
 
@@ -273,4 +288,87 @@ test('expired feed credentials refresh once and rejected mutations return to vis
   await expect(page.getByRole('link', { name: 'Sign in to like this project' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Sign out' })).toHaveCount(0);
   expect(refreshes).toBe(3);
+});
+
+test('search Enter requests the current query immediately and opens its first suggestion', async ({ page }) => {
+  await mockSession(page);
+  await page.route('**/api/feed?*', route => json(route, {posts:[makePost(1)], nextCursor:null}));
+  const queries = [];
+  await page.route('**/api/search/suggestions?*', async route => {
+    const query = new URL(route.request().url()).searchParams.get('q');
+    queries.push(query);
+    await json(route, {query, suggestions:[
+      {type:'user', id:'public-user', label:'First match', accountName:'Account', email:'account@example.com', showroomId:'public-user', profileId:null},
+      {type:'project', id:'p', label:'Second match', creatorName:'Account', showroomId:'public-user'},
+    ], hasMore:false});
+  });
+  await page.goto('/#/feed');
+  const input = page.getByLabel('Search projects or creators');
+  await input.fill('First');
+  await input.press('Enter');
+  await expect(page).toHaveURL(/#\/showroom\/public-user$/);
+  expect(queries).toEqual(['First']);
+});
+
+test('search ignores outdated results and handles empty, failed and cancelled queries without navigation', async ({ page }) => {
+  await mockSession(page);
+  await page.route('**/api/feed?*', route => json(route, {posts:[makePost(1)], nextCursor:null}));
+  let releaseOld;
+  const old = new Promise(resolve => { releaseOld = resolve; });
+  let releaseCancelled;
+  const cancelled = new Promise(resolve => { releaseCancelled = resolve; });
+  await page.route('**/api/search/suggestions?*', async route => {
+    const query = new URL(route.request().url()).searchParams.get('q');
+    if (query === 'old') await old;
+    if (query === 'cancelled') await cancelled;
+    if (query === 'failure') return json(route, {message:'Search temporarily unavailable.'}, 503);
+    await json(route, {query, suggestions: query === 'empty' ? [] : [
+      {type:'user', id:'u', label:query + ' user', accountName:'Account', email:'account@example.com', showroomId:'u', profileId:'cv'},
+    ], hasMore:false});
+  });
+  await page.goto('/#/feed');
+  const input = page.getByLabel('Search projects or creators');
+  const oldRequest = page.waitForRequest('**/api/search/suggestions?q=old&limit=10');
+  await input.fill('old');
+  await oldRequest;
+  await input.fill('current');
+  await expect(page.getByRole('option')).toContainText('current user');
+  releaseOld();
+  await expect(page.getByRole('option')).toHaveCount(1);
+  await expect(page.getByRole('option')).toHaveAttribute('href', '#/about/cv?showroom=u');
+  await input.fill('empty');
+  await input.press('Enter');
+  await expect(page.getByText('No matching users or projects.')).toBeVisible();
+  await expect(page).toHaveURL(/#\/feed$/);
+  await input.fill('failure');
+  await input.press('Enter');
+  await expect(page.getByRole('alert')).toContainText('Search temporarily unavailable.');
+  await expect(page).toHaveURL(/#\/feed$/);
+  await page.getByRole('button', {name:'Clear search'}).click();
+  await expect(page.getByRole('option')).toHaveCount(0);
+  await expect(page.locator('.feed-post')).toHaveCount(1);
+  const pending = page.waitForRequest('**/api/search/suggestions?q=cancelled&limit=10');
+  await input.fill('cancelled');
+  await pending;
+  await input.press('Enter');
+  await page.getByRole('button', {name:'Clear search'}).click();
+  releaseCancelled();
+  await expect(page).toHaveURL(/#\/feed$/);
+  await expect(page.getByRole('option')).toHaveCount(0);
+});
+
+test('same-name user suggestions show distinct account emails and public destinations', async ({page}) => {
+  await mockSession(page);
+  await page.route('**/api/feed?*', route => json(route, {posts:[], nextCursor:null}));
+  await page.route('**/api/search/suggestions?*', route => json(route, {query:'Same name', hasMore:false, suggestions:[
+    {type:'user', id:'first', label:'Same name', accountName:'Same name', email:'first@example.com', showroomId:'first', profileId:null},
+    {type:'user', id:'second', label:'Same name', accountName:'Same name', email:'second@example.com', showroomId:'second', profileId:'profile-second'},
+  ]}));
+  await page.goto('/#/feed');
+  await page.getByLabel('Search projects or creators').fill('Same name');
+  await expect(page.getByRole('option')).toHaveCount(2);
+  await expect(page.locator('.search-user-email')).toHaveText(['first@example.com','second@example.com']);
+  await expect(page.getByRole('option').first()).toHaveAttribute('href','#/showroom/first');
+  await page.getByRole('option').filter({hasText:'second@example.com'}).click();
+  await expect(page).toHaveURL(/#\/about\/profile-second\?showroom=second$/);
 });

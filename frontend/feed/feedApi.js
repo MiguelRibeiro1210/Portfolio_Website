@@ -8,6 +8,16 @@ export function createFeedApi(request) {
     return result;
   }
   return {
+    async suggestions(q, signal) {
+      const result = await request(`/api/search/suggestions?q=${encodeURIComponent(q)}&limit=10`, { signal }, true);
+      if (result?.query !== q || !Array.isArray(result.suggestions) || typeof result.hasMore !== 'boolean' ||
+        result.suggestions.some(item => !item || !['user', 'project'].includes(item.type) ||
+          !['id', 'label', 'showroomId'].every(key => typeof item[key] === 'string') ||
+          (item.type === 'user' ? typeof item.accountName !== 'string' || typeof item.email !== 'string' || !(item.profileId === null || typeof item.profileId === 'string') : typeof item.creatorName !== 'string'))) {
+        throw new Error('Search returned an invalid response. Please try again.');
+      }
+      return result;
+    },
     async posts(cursor, signal) {
       return page(await request(`/api/feed?limit=10${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`, { signal }, true), 'posts');
     },
@@ -23,11 +33,10 @@ export function createFeedApi(request) {
   };
 }
 
-export function matchesSearch(post, query) {
-  const normalize = value => String(value ?? '').normalize('NFKD').replace(/\p{M}/gu, '').toLocaleLowerCase();
-  const terms = normalize(query).trim().split(/\s+/).filter(Boolean);
-  const content = normalize([post.author?.name, post.project?.title, post.project?.description, post.project?.stack].join(' '));
-  return terms.every(term => content.includes(term));
+export function suggestionUrl(item) {
+  const showroom = encodeURIComponent(item.showroomId);
+  if (item.type === 'project') return `#/showroom/${showroom}/${encodeURIComponent(item.id)}`;
+  return item.profileId ? `#/about/${encodeURIComponent(item.profileId)}?showroom=${showroom}` : `#/showroom/${showroom}`;
 }
 
 export function appendUnique(current, incoming) {
