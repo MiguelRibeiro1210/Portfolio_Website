@@ -1,4 +1,6 @@
 import { loadFeedBundle } from './feed-loader.js';
+import { technologyField, serializeTechStack } from './tech-stack.js';
+import { collaboratorRow } from './collaborators.js';
 import { repository, emptyWorkspace, registerAccount, signIn, restoreSession, signOut, createProject, loadProject, updateProject, deleteProject, rememberProject, loadOwnerProfile, saveOwnerProfile, loadPublicProfile, publicCvUrl, showroomPath, showroomFileUrl, loadOwnerShowroom, loadShowroom, feedRequest, lookupCollaborator, loadCollaborations, leaveProject } from './api.js';
 import { showroom, projectPage, studio } from './project.js';
 import { aboutPage } from './cv.js';

@@ -484,7 +484,8 @@ test('keyboard navigation works and the system states preview is inaccessible',a
 });
 
 test('technology fields persist as chips and long showroom copy stays compact', async ({ page, browser }, info) => {
-  const id = await saveProject(page, { title: 'Compact showroom project' });
+  const title = `Compact showroom project ${randomUUID()}`;
+  const id = await saveProject(page, { title });
   const description = 'A deliberately long description that belongs on the project page. '.repeat(45).trim();
   const story = 'The complete project story is available in the detailed view. '.repeat(35).trim();
   await page.getByLabel('Short description').fill(description);
@@ -528,7 +529,7 @@ test('technology fields persist as chips and long showroom copy stays compact', 
     await visitor.getByRole('tab', { name: 'Technical details' }).click();
     await expect(visitor.locator('.tech-tag')).toHaveText(['Spring Boot', 'React (TypeScript)', 'Tauri', 'Java 17', 'H2']);
     await visitor.goto('/#/feed');
-    const post = visitor.locator('.feed-post').filter({ has: visitor.getByRole('heading', { name: 'Compact showroom project', exact: true }) });
+    const post = visitor.locator('.feed-post').filter({ has: visitor.getByRole('heading', { name: title, exact: true }) });
     await expect(post.locator('.tech-tag')).toHaveText(['Spring Boot', 'React (TypeScript)', 'Tauri', 'Java 17', 'H2']);
   } finally { await visitor.close(); }
   await navigate(page, `/studio/${id}`);
