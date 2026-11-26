@@ -152,6 +152,12 @@ Use Node.js 20.19+ or 22.12+ for Vite. `npm start`, `npm run dev`, and `npm run 
 
 ---
 
+## Search Users and Projects (UC006 — Planned Backend)
+
+The [UC006 backend documentation and implementation plan](docs/UC006/UC006_Search_Users_And_Projects.md) defines public user/project name suggestions. Matches will appear only beneath the expanded search bar; selecting one opens its public page, and Enter opens the first current suggestion. It will replace loaded-feed filtering in a separate frontend implementation.
+
+---
+
 ## Security Tests
 
 Run `npm test` for frontend, configuration, and authentication checks. PostgreSQL integration tests are skipped when `TEST_DATABASE_URL` is absent.

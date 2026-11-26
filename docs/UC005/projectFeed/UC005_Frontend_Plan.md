@@ -67,9 +67,3 @@ On successful submission, clear only the submitted draft and update the count. I
 - For account changes, cancel outdated personalized reads, clear the previous viewer's like flags, and refetch the same loaded pages using the new identity or anonymous transport. Preserve displayed public content, page boundaries, and scroll position; do not fetch the unseen remainder of the feed.
 - Verify the first request/page size, one in-flight next-page request, cursor advancement only on success, deduplication, end-of-feed termination, retry without lost cards, lazy comments/media, and cleanup after navigation.
 - Verify visitors can browse without owner-workspace requests; signed-in interactions persist across reload; drafts/build files stay private; existing UC001/UC002 flows pass after entry routing and bundle-build changes.
-
-## 7. Frontend-only search
-
-The search field matches loaded project title, description, tech stack, and creator name, ignoring case and accents. It never sends a search parameter to the current feed API, which supports only `cursor` and `limit`. Nonempty search pauses automatic scroll prefetch so a small filtered list cannot drain every remaining page; **Load more projects to search** loads one normal batch on explicit activation. Clear search restores loaded cards in their existing order. Empty matches are labelled as results within loaded projects, not as proof that a creator/project is absent from the database.
-
-Search across the complete user/project directory requires a future backend contract and is not part of this frontend change. Search uses no new endpoint; public navigation uses the showroom/profile identifiers supplied in each feed author summary.
