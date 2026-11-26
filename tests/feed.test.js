@@ -202,7 +202,7 @@ test('cover selection excludes builds, supports ranges, and follows publish/upda
     const project = await f.project(owner, { ...details, published: false });
     database = await openDatabase(f.config);
     const original = await database.findProject(owner.user.id, project.id);
-    const publish = await database.updateProject({ ...original, published: true }, original.revision);
+    const publish = await database.updateProject({ ...original, collaborators: undefined, published: true }, original.revision);
     const { posts: [post] } = await (await f.request('/feed')).json();
     const path = `/feed/posts/${post.id}`;
     assert.equal(post.project.id, project.id);
@@ -210,7 +210,7 @@ test('cover selection excludes builds, supports ranges, and follows publish/upda
     const build = { id: randomUUID(), name: 'build.zip', type: 'application/zip', size: 4, permission: 'none' };
     await writeFile(f.storage.path(video.id), Buffer.from('0123456789abcdef'));
     await writeFile(f.storage.path(build.id), Buffer.from('PKxx'));
-    const edited = await database.updateProject({ ...publish.project, media: [video, ...publish.project.media], build }, publish.revision);
+    const edited = await database.updateProject({ ...publish.project, collaborators: undefined, media: [video, ...publish.project.media], build }, publish.revision);
     assert.equal((await (await f.request('/feed')).json()).posts[0].cover.type, 'image/png');
     const imageResponse = await f.request(path + '/media');
     assert.equal(imageResponse.status, 200);
@@ -220,7 +220,7 @@ test('cover selection excludes builds, supports ranges, and follows publish/upda
     assert.deepEqual(Buffer.from(await imageResponse.arrayBuffer()), image);
     assert.equal((await f.request(`/feed/posts/${build.id}/media`)).status, 404);
     // Removing the image changes the derived cover to the first video, without duplicating the post.
-    const videoOnly = await database.updateProject({ ...edited.project, media: [video] }, edited.revision);
+    const videoOnly = await database.updateProject({ ...edited.project, collaborators: undefined, media: [video] }, edited.revision);
     assert.equal((await (await f.request('/feed')).json()).posts[0].cover.type, 'video/mp4');
     const ranged = await f.request(path + '/media', { headers: { Range: 'bytes=2-5' } });
     assert.equal(ranged.status, 206);
@@ -230,12 +230,12 @@ test('cover selection excludes builds, supports ranges, and follows publish/upda
     await rm(f.storage.path(video.id));
     assert.equal((await f.request(path + '/media')).status, 404);
     assert.equal((await (await f.request('/feed')).json()).posts.length, 1);
-    const hidden = await database.updateProject({ ...videoOnly.project, published: false }, videoOnly.revision);
+    const hidden = await database.updateProject({ ...videoOnly.project, collaborators: undefined, published: false }, videoOnly.revision);
     assert.deepEqual((await (await f.request('/feed')).json()).posts, []);
     for (const suffix of ['/media', '/comments']) assert.equal((await f.request(path + suffix)).status, 404);
     assert.equal((await f.request(path + '/like', { method: 'PUT', token: owner.token })).status, 404);
     assert.equal((await f.request(path + '/comments', { method: 'POST', token: owner.token, data: { text: 'hidden' } })).status, 404);
-    const shown = await database.updateProject({ ...hidden.project, published: true }, hidden.revision);
+    const shown = await database.updateProject({ ...hidden.project, collaborators: undefined, published: true }, hidden.revision);
     assert.equal((await (await f.request('/feed')).json()).posts[0].id, post.id);
     assert.equal((await f.inspection.query('SELECT count(*)::int AS n FROM portfolio.feed_posts')).rows[0].n, 1);
     await f.request(path + '/like', { method: 'PUT', token: owner.token });
@@ -245,20 +245,23 @@ test('cover selection excludes builds, supports ranges, and follows publish/upda
   } finally { await database?.close(); await f.cleanup(); }
 });
 
-test('feed migration backfills existing publications and project/post writes roll back together', integration, async () => {
+test('feed and collaborator migrations backfill existing projects and project/post writes roll back together', integration, async () => {
   const fixture = await openTestDatabase();
   let database;
   try {
     // Simulate an installation at migration 006 inside the exclusively owned disposable schema.
-    await fixture.inspection.query('DROP TABLE portfolio.post_comments, portfolio.post_likes, portfolio.feed_posts');
-    await fixture.inspection.query("DELETE FROM portfolio.schema_migrations WHERE filename = '007_create_feed_tables.sql'");
+    await fixture.inspection.query('DROP TABLE portfolio.post_comments, portfolio.post_likes, portfolio.feed_posts, portfolio.project_collaborators');
+    await fixture.inspection.query('ALTER TABLE portfolio.projects DROP COLUMN collaboration_notes');
+    await fixture.inspection.query("DELETE FROM portfolio.schema_migrations WHERE filename IN ('007_create_feed_tables.sql', '008_create_project_collaborators.sql')");
     const { rows: [owner] } = await fixture.inspection.query("INSERT INTO portfolio.users (name, email, password_hash) VALUES ('Legacy', 'legacy-feed@example.com', '') RETURNING id");
     const publishedId = randomUUID(), draftId = randomUUID();
     for (const [id, published] of [[publishedId, true], [draftId, false]]) {
       await fixture.inspection.query(`INSERT INTO portfolio.projects (id, owner_id, title, type, description, stack, published, created_at)
         VALUES ($1, $2, 'Existing', 'open', 'Existing description', 'JS', $3, '2026-01-01T01:02:03.123456Z')`, [id, owner.id, published]);
     }
-    assert.deepEqual(await applyMigrations(fixture.inspection), ['007_create_feed_tables.sql']);
+    assert.deepEqual(await applyMigrations(fixture.inspection), ['007_create_feed_tables.sql', '008_create_project_collaborators.sql']);
+    const { rows: memberships } = await fixture.inspection.query('SELECT user_id, role FROM portfolio.project_collaborators');
+    assert.deepEqual(memberships, Array.from({ length: 2 }, () => ({ user_id: owner.id, role: 'owner' })));
     assert.deepEqual(await applyMigrations(fixture.inspection), []);
     const migration = await readFile(new URL('../src/db/migrations/007_create_feed_tables.sql', import.meta.url), 'utf8');
     const backfill = migration.slice(migration.indexOf('INSERT INTO portfolio.feed_posts'), migration.indexOf('\nDO $$'));

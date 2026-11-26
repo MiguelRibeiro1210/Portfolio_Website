@@ -1,6 +1,5 @@
-import { technologyField, serializeTechStack } from './tech-stack.js';
 import { loadFeedBundle } from './feed-loader.js';
-import { repository, emptyWorkspace, registerAccount, signIn, restoreSession, signOut, createProject, loadProject, updateProject, deleteProject, rememberProject, loadOwnerProfile, saveOwnerProfile, loadPublicProfile, publicCvUrl, showroomPath, showroomFileUrl, loadOwnerShowroom, loadShowroom, feedRequest } from './api.js';
+import { repository, emptyWorkspace, registerAccount, signIn, restoreSession, signOut, createProject, loadProject, updateProject, deleteProject, rememberProject, loadOwnerProfile, saveOwnerProfile, loadPublicProfile, publicCvUrl, showroomPath, showroomFileUrl, loadOwnerShowroom, loadShowroom, feedRequest, lookupCollaborator, loadCollaborations, leaveProject } from './api.js';
 import { showroom, projectPage, studio } from './project.js';
 import { aboutPage } from './cv.js';
 import { authPage } from './auth.js';
@@ -21,7 +20,9 @@ let featuredIndex = 0;
 let savingProject = false, savingProfile = false, workspaceError = '', profileError = '';
 let aboutLoad, editorLoad, visitorLoad;
 let ownerShowroomId = null;
-let visitorProjects = [];
+let galleryProjects = [];
+let collaborations = [];
+let sharedProjects = [];
 
 async function loadShowroomView(showroomId, projectId) {
   const data = await loadShowroom(showroomId, projectId);
@@ -32,8 +33,7 @@ async function loadShowroomView(showroomId, projectId) {
 }
 
 function featuredCount() {
-  const projects = route().showroomId ? visitorProjects : state.projects;
-  return projects.filter(project => project.published).length;
+  return galleryProjects.filter(project => project.published).length;
 }
 
 function rememberWorkspaceProject(project) {
@@ -55,10 +55,17 @@ async function loadWorkspace() {
   const ownerId = account?.id;
   if (!ownerId) return;
   try {
-    const loaded = await repository.load();
-    const showroomId = await loadOwnerShowroom().catch(() => null);
+    const [loaded, showroomId, memberships] = await Promise.all([
+      repository.load(), loadOwnerShowroom().catch(() => null), loadCollaborations(),
+    ]);
+    const shared = showroomId && memberships.some(member => member.published && member.role !== 'owner')
+      ? await loadShowroom(showroomId) : null;
+    const editorIds = new Set(loaded.projects.map(project => project.id));
     if (account?.id !== ownerId) return;
     state = loaded; workspaceError = ''; ownerShowroomId = showroomId;
+    collaborations = memberships;
+    sharedProjects = (shared?.projects ?? []).filter(project => !editorIds.has(project.id))
+      .map(project => ({ ...project, sharedShowroomId: showroomId }));
     workspaceLoadedFor = ownerId;
   } catch (error) {
     if (account?.id === ownerId) { workspaceError = error.message; workspaceLoadedFor = null; }
@@ -66,7 +73,7 @@ async function loadWorkspace() {
 }
 let filter = 'all', projectTab = 'specs', aboutTab = 'about', mediaIndex = 0;
 let pendingFiles = [], removedFiles = new Set(), dirty = false, activeUrls = [];
-window.addEventListener('session-ended', () => { account = null; state = repository.reset(); workspaceLoadedFor = null; ownerShowroomId = null; syncFeedAccount(); });
+window.addEventListener('session-ended', () => { account = null; state = repository.reset(); workspaceLoadedFor = null; ownerShowroomId = null; collaborations = []; sharedProjects = []; syncFeedAccount(); });
 const app = document.querySelector('#app');
 // The discovery feed is public; explicit showroom, studio and account routes keep their destinations.
 if (!location.hash || location.hash === '#') history.replaceState(null, '', `${location.pathname}${location.search}#/feed`);
@@ -88,7 +95,7 @@ function header(page, profile = state.profile, ownProfile = true, visitor = null
   const project = state.projects.find(item => item.id === current.id);
   const collection = visitor ? showroomPath(visitor.id) : '#/';
   const about = visitor ? visitor.profileId && `#/about/${encodeURIComponent(visitor.profileId)}?showroom=${encodeURIComponent(visitor.id)}` : '#/about';
-  const editableProject = page === 'project' && (visitor ? visitor.owner && visitor.projectId : account && project?.id);
+  const editableProject = page === 'project' && (visitor ? visitor.canEdit && visitor.projectId : account && project?.id);
   const editId = visitor ? visitor.projectId : project?.id;
   const canEditCv = page === 'about' && account && ownProfile;
 
@@ -206,7 +213,7 @@ async function render() {
   let profile = state.profile;
   let visitor = null;
   let visitorIssue = '';
-  let projects = state.projects;
+  let projects = ['home', 'about'].includes(r.page) ? [...state.projects, ...sharedProjects] : state.projects;
   if (r.showroomId) {
     const key = JSON.stringify([r.showroomId, r.id]);
     if (visitorLoad?.key !== key) {
@@ -217,10 +224,16 @@ async function render() {
     try { data = await visitorLoad.result; }
     catch { visitorIssue = 'retry'; }
     if (renderedHash !== location.hash) return;
+    let viewerShowroomId = ownerShowroomId;
+    if (account && !viewerShowroomId && r.id && data) {
+      viewerShowroomId = await loadOwnerShowroom().catch(() => null);
+      if (renderedHash !== location.hash) return;
+    }
     visitor = { id: r.showroomId, profileId: data?.showroom.profileId,
-      owner: Boolean(account && ownerShowroomId === r.showroomId),
+      canEdit: Boolean(account && data?.projects[0]?.collaborators?.some(member =>
+        member.showroomId === viewerShowroomId && member.role === 'owner')),
       projectId: r.id && data?.projects[0]?.id };
-    projects = visitorProjects = data?.projects ?? [];
+    projects = data?.projects ?? [];
     profile = data?.profile ?? emptyWorkspace().profile;
     if (!data && !visitorIssue) visitorIssue = 'missing';
   }
@@ -243,7 +256,7 @@ async function render() {
       if (related?.showroom.profileId === r.id) {
         profileShowroom = related.showroom;
         projects = related.projects;
-      } else if (ownProfile) projects = state.projects;
+      } else if (ownProfile) projects = [...state.projects, ...sharedProjects];
       profile = saved ?? emptyWorkspace().profile;
       missingProfile = !saved;
     } catch (error) {
@@ -256,6 +269,7 @@ async function render() {
   }
   document.body.dataset.page=r.page;
   const oauthStatus = oauthMessages.get(r.oauth) ?? '';
+  if (r.page === 'home') galleryProjects = projects;
   const viewState = { ...state, profile, projects };
   const content = visitorIssue === 'retry'
     ? `<section class="section-pad state-single"><h1 class="eyebrow">Showroom unavailable</h1>${stateCard('maintenance', button('Try again', 'reload-showroom'))}</section>`
@@ -265,22 +279,23 @@ async function render() {
     ? `<div class="section-pad state-single"><h1 class="eyebrow">Project studio</h1>${accessState()}</div>`
     : editorError
     ? `<section class="section-pad"><h1>Could not open project.</h1><p role="alert">${e(editorError)}</p>${button('Retry loading project','reload-project')}</section>`
-    : studio(state,r.id,r.section,account,oauthStatus,profileError,ownerShowroomId)):['signin','register','reset'].includes(r.page)?authPage(r.page,oauthStatus):`<section class="not-found section-pad"><p class="eyebrow">404 / A LITTLE OFF THE MAP</p><h1>Let’s head back to the gallery.</h1>${link('Explore the projects','#/','primary','arrow')}</section>`;
+    : studio(state,r.id,r.section,account,oauthStatus,profileError,ownerShowroomId,collaborations)):['signin','register','reset'].includes(r.page)?authPage(r.page,oauthStatus):`<section class="not-found section-pad"><p class="eyebrow">404 / A LITTLE OFF THE MAP</p><h1>Let’s head back to the gallery.</h1>${link('Explore the projects','#/','primary','arrow')}</section>`;
   app.innerHTML = `${header(r.page, profile, ownProfile, visitor)}<main id="main" tabindex="-1">${workspaceError && !visitor ? `<div class="section-pad" role="alert"><p>${e(workspaceError)}</p>${button('Retry loading projects','reload-projects')}</div>` : ''}${content}</main>${footer(visitor)}`;
   document.title=`${({home:'The collection',project:'Project experience',about:'Behind the projects',studio:'Your workspace',signin:'Sign in',register:'Create your gallery',reset:'Reset password'})[r.page]||'Page not found'} — folio`;
   dirty=false; pendingFiles=[]; removedFiles.clear();
   bindForms();
   for (const container of app.querySelectorAll('[data-media-id]')) {
-    if (visitor || profileShowroom) {
-      const id = container.dataset.mediaId;
-      const project = projects.find(item => item.media.some(file => file.id === id));
+    const id = container.dataset.mediaId;
+    const project = projects.find(item => item.media.some(file => file.id === id));
+    const mediaShowroomId = visitor?.id ?? profileShowroom?.id ?? project?.sharedShowroomId;
+    if (mediaShowroomId) {
       const file = project?.media.find(item => item.id === id);
       if (!file) continue;
       const element = document.createElement(file.type.startsWith('video/') ? 'video' : 'img');
       element.addEventListener('error', () => { container.textContent = 'Media could not be loaded.'; }, { once: true });
       if (element.tagName === 'VIDEO') element.controls = true;
       else element.alt = file.name;
-      element.src = showroomFileUrl((visitor || profileShowroom).id, project.id, file.id);
+      element.src = showroomFileUrl(mediaShowroomId, project.id, file.id);
       container.append(element);
       continue;
     }
@@ -435,6 +450,45 @@ function bindForms() {
     };
   }
 }
+async function findTeammate(button) {
+  const form = button.closest('form');
+  const input = form.querySelector('#collaborator-email');
+  const status = form.querySelector('#collaborator-status');
+  const result = form.querySelector('#collaborator-result');
+  const list = form.querySelector('#project-collaborators');
+  result.replaceChildren();
+  status.textContent = 'Looking for teammate…';
+  button.disabled = true;
+  try {
+    const member = await lookupCollaborator(input.value);
+    const alreadyAdded = () => [...list.children].some(row => row.dataset.collaborator === member.showroomId);
+    if (alreadyAdded()) {
+      status.textContent = 'This teammate is already on the project.';
+      return;
+    }
+    status.textContent = '';
+    const add = document.createElement('button');
+    add.type = 'button';
+    add.className = 'btn';
+    add.textContent = `Add ${member.name} (${member.email})`;
+    add.onclick = () => {
+      if (alreadyAdded()) return;
+      const project = state.projects.find(item => item.id === route().id);
+      list.insertAdjacentHTML('beforeend', collaboratorRow({ ...member, role: 'team_member' },
+        !project || project.ownerId === account?.id));
+      result.replaceChildren();
+      input.value = '';
+      input.focus();
+      dirty = true;
+    };
+    result.append(add);
+  } catch (error) {
+    status.textContent = error.message;
+  } finally {
+    button.disabled = false;
+  }
+}
+
 function safeUrl(value){try{return ['https:','http:'].includes(new URL(value).protocol);}catch{return false;}}
 async function saveProject(event) {
   event.preventDefault();
@@ -453,6 +507,9 @@ async function saveProject(event) {
     const p = Object.fromEntries(['title','type','description','story','compatibility','source','releaseNotes','permission'].map(key=>[key,String(form.get(key)||'').trim()]));
     p.stack = serializeTechStack(form.getAll('technology'));
     p.published = form.has('published');
+    p.collaborationNotes = form.get('collaborationNotes');
+    p.collaborators = [...formElement.querySelectorAll('[data-collaborator]:not([data-creator])')]
+      .map(row => ({ showroomId: row.dataset.collaborator, role: row.querySelector('[data-role]').value }));
     if (!p.title || !p.description || !p.stack) throw new Error('Fill in the title, description, and tech stack.');
     if (p.source && !safeUrl(p.source)) throw new Error('Use an HTTP or HTTPS repository URL.');
     const uploads = pendingFiles.filter(item => item.category === 'media');
@@ -616,6 +673,23 @@ document.addEventListener('click',async event=>{
     if(action==='view-gallery')document.querySelector('.project-stage')?.scrollIntoView({behavior:'smooth',block:'center'});
     if(action==='reset-filter'){filter='all';await render();document.querySelector('#collection').scrollIntoView();}
     if(action==='toggle-password'){const input=document.querySelector('#password');const show=input.type==='password';input.type=show?'text':'password';target.textContent=show?'Hide':'Show';target.setAttribute('aria-pressed',String(show));}
+    if (action === 'find-collaborator') await findTeammate(target);
+    if (target.hasAttribute('data-remove-collaborator')) {
+      target.closest('[data-collaborator]').remove();
+      dirty = true;
+    }
+    if (target.dataset.leaveProject) {
+      confirmAction('Leave project?', 'The project will be removed from your showroom.', 'Leave project', async () => {
+        await leaveProject(target.dataset.leaveProject);
+        editorLoad = undefined;
+        visitorLoad = undefined;
+        dirty = false;
+        await loadWorkspace();
+        if (route().id) location.hash = '/studio';
+        else await render();
+        notify('You left the project.');
+      });
+    }
     if (action === 'delete-project') {
       const current = state.projects.find(project => project.id === route().id);
       if (!current?.etag) return;
@@ -659,7 +733,9 @@ window.addEventListener('hashchange',async()=>{
   aboutLoad = undefined;
   editorLoad = undefined;
   visitorLoad = undefined;
-  if (route().showroomId) { featuredIndex = 0; filter = 'all'; }
+  const nextRoute = route();
+  if (nextRoute.showroomId) { featuredIndex = 0; filter = 'all'; }
+  if (!nextRoute.showroomId && ['home', 'studio'].includes(nextRoute.page)) workspaceLoadedFor = null;
   previousHash=location.hash;projectTab='specs';mediaIndex=0;await render();window.scrollTo(0,0);document.querySelector('#main').focus({preventScroll:true});
 });
 window.addEventListener('beforeunload',event=>{if(dirty){event.preventDefault();event.returnValue='';}});

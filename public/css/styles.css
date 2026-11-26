@@ -877,6 +877,15 @@ input[type=checkbox], input[type=radio] { accent-color: var(--button); }
   .theme-switch::before { content: none; }
 }
 
+.collaborator-list { list-style: none; margin: 12px 0; padding: 0; }
+.collaborator-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.collaborator-row > div { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.collaborator-row select { max-width: 100%; }
+#collaborator-result { margin-top: 8px; }
+#collaborator-result button { white-space: normal; overflow-wrap: anywhere; }
+.project-credits { margin-top: 20px; }
+.project-credits a, .collaborator-row a { text-decoration: underline; }
+
 .tech-tags { display: flex; flex-wrap: wrap; gap: 7px; list-style: none; margin: 0; padding: 0; min-width: 0; }
 .tech-tag { display: inline-block; max-width: 100%; padding: 5px 9px; border: 1px solid var(--line); border-radius: 4px; font-size: 11px; line-height: 1.5; color: var(--muted); overflow-wrap: anywhere; }
 .featured-links { display: block; }

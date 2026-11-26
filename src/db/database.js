@@ -3,9 +3,11 @@ import { Pool } from 'pg';
 import { projectError } from '../domain/projectRules.js';
 import { describeDatabaseError } from './errors.js';
 import { createFeedOperations, ensureFeedPost } from './feedDatabase.js';
+import { collaboratorJoin, editorMembership, editorFields, publicCollaborationFields, saveCollaborators } from './projectCollaborators.js';
 
-const projectSelect = (withRevision = false) => `SELECT ${withRevision ? "p.revision, " : ""}p.id, p.owner_id AS "ownerId", p.title, p.type,
+const projectSelect = (withRevision = false, publicView = false) => `SELECT ${withRevision ? "p.revision, " : ""}p.id, p.owner_id AS "ownerId", p.title, p.type,
   p.description, p.stack, p.published, p.created_at AS "createdAt",
+  ${publicView ? publicCollaborationFields : editorFields},
   (SELECT json_build_object('story', n.story, 'compatibility', n.compatibility,
     'source', n.source, 'releaseNotes', n.release_notes)
    FROM portfolio.project_notes n WHERE n.project_id = p.id) AS notes,
@@ -59,8 +61,9 @@ export async function openDatabase(config) {
     await pool.query('SELECT id, name, email, password_hash, created_at, showroom_id FROM portfolio.users LIMIT 0');
     await pool.query('SELECT id, user_id, refresh_token_hash, created_at, last_refreshed_at, expires_at, revoked_at FROM portfolio.sign_in_sessions LIMIT 0');
     await pool.query('SELECT provider, provider_user_id, user_id, linked_at FROM portfolio.provider_identities LIMIT 0');
-    await pool.query('SELECT id, owner_id, revision FROM portfolio.projects LIMIT 0');
+    await pool.query('SELECT id, owner_id, revision, collaboration_notes FROM portfolio.projects LIMIT 0');
     await pool.query('SELECT project_id FROM portfolio.project_notes LIMIT 0');
+    await pool.query('SELECT project_id, user_id, role FROM portfolio.project_collaborators LIMIT 0');
     await pool.query('SELECT id, project_id FROM portfolio.project_files LIMIT 0');
     await pool.query(`${profileSelect} LIMIT 0`);
     await pool.query('SELECT id, project_id, created_at FROM portfolio.feed_posts LIMIT 0');
@@ -146,22 +149,29 @@ export async function openDatabase(config) {
     createProject(project) {
       return projectTransaction(async client => {
         await client.query(`INSERT INTO portfolio.projects
-          (id, owner_id, title, type, description, stack, published) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-        [project.id, project.ownerId, project.title, project.type, project.description, project.stack, project.published]);
+          (id, owner_id, title, type, description, stack, published, collaboration_notes) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [project.id, project.ownerId, project.title, project.type, project.description, project.stack, project.published, project.collaborationNotes ?? '']);
+        await saveCollaborators(client, project, project.ownerId, true);
         await writeProjectAssociations(client, project);
         await ensureFeedPost(client, project.id);
         const { rows: [saved] } = await client.query(`${projectSelect()} WHERE p.id = $1 AND p.owner_id = $2`, [project.id, project.ownerId]);
         return saved;
       });
     },
-    updateProject(project, revision) {
+    updateProject(project, revision, actorId = project.ownerId) {
       return projectTransaction(async client => {
         await lockProject(client, project.ownerId, project.id, revision);
+        const { rowCount } = await client.query(
+          "SELECT 1 FROM portfolio.project_collaborators WHERE project_id = $1 AND user_id = $2 AND role = 'owner'",
+          [project.id, actorId],
+        );
+        if (!rowCount) throw projectError('Project not found.', 404);
+        await saveCollaborators(client, project, actorId);
         const previous = await projectFileIds(client, project.id);
         await client.query(`UPDATE portfolio.projects
-          SET title = $3, type = $4, description = $5, stack = $6, published = $7, revision = revision + 1
+          SET title = $3, type = $4, description = $5, stack = $6, published = $7, collaboration_notes = COALESCE($8, collaboration_notes), revision = revision + 1
           WHERE owner_id = $1 AND id = $2`,
-        [project.ownerId, project.id, project.title, project.type, project.description, project.stack, project.published]);
+        [project.ownerId, project.id, project.title, project.type, project.description, project.stack, project.published, project.collaborationNotes]);
         // Replace associations inside the transaction to avoid transient position conflicts.
         await client.query('DELETE FROM portfolio.project_notes WHERE project_id = $1', [project.id]);
         await client.query('DELETE FROM portfolio.project_files WHERE project_id = $1', [project.id]);
@@ -182,11 +192,34 @@ export async function openDatabase(config) {
       });
     },
     async listProjects(ownerId) {
-      const { rows } = await pool.query(`${projectSelect()} WHERE p.owner_id = $1 ORDER BY p.created_at, p.id`, [ownerId]);
+      const { rows } = await pool.query(`${projectSelect()} WHERE ${editorMembership} ORDER BY p.created_at, p.id`, [ownerId]);
       return rows;
     },
     findProject(ownerId, id) {
-      return first(`${projectSelect(true)} WHERE p.owner_id = $1 AND p.id = $2`, [ownerId, id]);
+      return first(`${projectSelect(true)} WHERE ${editorMembership} AND p.id = $2`, [ownerId, id]);
+    },
+    findCollaboratorByEmail(email, actorId) {
+      return first('SELECT showroom_id AS "showroomId", name, email FROM portfolio.users WHERE email = $1 AND id <> $2', [email, actorId]);
+    },
+    async listCollaborations(userId) {
+      const { rows } = await pool.query(`SELECT p.id, c.role, p.published,
+        CASE WHEN p.published OR c.role = 'owner' THEN p.title END AS title
+        FROM portfolio.project_collaborators c JOIN portfolio.projects p ON p.id = c.project_id
+        WHERE c.user_id = $1 AND p.owner_id <> $1 ORDER BY p.created_at, p.id`, [userId]);
+      return rows;
+    },
+    leaveProject(userId, projectId) {
+      return projectTransaction(async client => {
+        const { rows: [project] } = await client.query(
+          'SELECT owner_id FROM portfolio.projects WHERE id = $1 FOR UPDATE', [projectId],
+        );
+        if (!project) return;
+        if (project.owner_id === userId) throw projectError('The creator cannot leave the project.', 403);
+        const { rowCount } = await client.query(
+          'DELETE FROM portfolio.project_collaborators WHERE project_id = $1 AND user_id = $2', [projectId, userId],
+        );
+        if (rowCount) await client.query('UPDATE portfolio.projects SET revision = revision + 1 WHERE id = $1', [projectId]);
+      });
     },
     findOwnerShowroom(ownerId) {
       return first('SELECT showroom_id AS id FROM portfolio.users WHERE id = $1', [ownerId]);
@@ -197,22 +230,22 @@ export async function openDatabase(config) {
         WHERE u.showroom_id = $1`, [showroomId]);
     },
     async listPublicProjects(showroomId) {
-      const { rows } = await pool.query(`${projectSelect()}
-        JOIN portfolio.users u ON u.id = p.owner_id
+      const { rows } = await pool.query(`${projectSelect(false, true)}
+        ${collaboratorJoin}
         WHERE u.showroom_id = $1 AND p.published
         ORDER BY p.created_at, p.id`, [showroomId]);
       return rows;
     },
     findPublicProject(showroomId, projectId) {
-      return first(`${projectSelect()}
-        JOIN portfolio.users u ON u.id = p.owner_id
+      return first(`${projectSelect(false, true)}
+        ${collaboratorJoin}
         WHERE u.showroom_id = $1 AND p.id = $2 AND p.published`, [showroomId, projectId]);
     },
     findPublicProjectFile(showroomId, projectId, fileId) {
       return first(`SELECT f.id, f.name, f.type, f.kind
         FROM portfolio.project_files f
         JOIN portfolio.projects p ON p.id = f.project_id
-        JOIN portfolio.users u ON u.id = p.owner_id
+        ${collaboratorJoin}
         WHERE u.showroom_id = $1 AND p.id = $2 AND f.id = $3 AND p.published
           AND (f.kind = 'media' OR (f.kind = 'build' AND f.permission = 'public'))`,
       [showroomId, projectId, fileId]);
@@ -220,7 +253,7 @@ export async function openDatabase(config) {
     findProjectFile(ownerId, id) {
       return first(`SELECT f.id, f.name, f.type, f.size, f.kind, f.permission
         FROM portfolio.project_files f JOIN portfolio.projects p ON p.id = f.project_id
-        WHERE p.owner_id = $1 AND f.id = $2`, [ownerId, id]);
+        WHERE ${editorMembership} AND f.id = $2`, [ownerId, id]);
     },
     async insertUser(name, email, passwordHash) {
       const row = await first(

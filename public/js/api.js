@@ -127,6 +127,25 @@ export function rememberProject(project) {
   else workspace.projects[index] = project;
 }
 
+export async function lookupCollaborator(email) {
+  const { account } = await projectRequest('/api/projects/collaborators/lookup', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }),
+  });
+  return account;
+}
+
+export async function loadCollaborations() {
+  return (await projectRequest('/api/projects/collaborations')).collaborations;
+}
+
+export async function leaveProject(id) {
+  const response = await authorizedFetch(`/api/projects/${encodeURIComponent(id)}/collaborators/me`, { method: 'DELETE' });
+  if (!response.ok) {
+    const data = await response.json().catch(() => null);
+    throw new Error(data?.message || 'Could not leave this project.');
+  }
+}
+
 export async function createProject(project, files) {
   const result = await projectRequest('/api/projects', { method: 'POST', body: projectFormData(project, files) });
   const saved = projectView(result.project);

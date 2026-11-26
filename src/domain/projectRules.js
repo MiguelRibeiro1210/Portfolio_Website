@@ -7,7 +7,7 @@ export function projectError(message, status = 400) {
 
 export function validateProject(input, files, selection) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw projectError('Project details must be an object.');
-  const allowed = ['title', 'type', 'description', 'stack', 'published', 'story', 'compatibility', 'source', 'releaseNotes', 'permission'];
+  const allowed = ['title', 'type', 'description', 'stack', 'published', 'story', 'compatibility', 'source', 'releaseNotes', 'permission', 'collaborators', 'collaborationNotes'];
   if (Object.keys(input).some(key => !allowed.includes(key))) throw projectError('Unexpected project field. Ownership is assigned by the server.');
   const text = (key, max, required = false) => {
     const value = input[key];
@@ -31,6 +31,23 @@ export function validateProject(input, files, selection) {
     }
   }
   project.notes = Object.values(notes).some(Boolean) ? notes : null;
+  if (input.collaborationNotes !== undefined) project.collaborationNotes = text('collaborationNotes', 5000);
+  if (input.collaborators !== undefined) {
+    if (!Array.isArray(input.collaborators) || input.collaborators.length > 50) {
+      throw projectError('Select up to 50 collaborators.');
+    }
+    const seen = new Set();
+    project.collaborators = input.collaborators.map(entry => {
+      if (!entry || typeof entry.showroomId !== 'string' || !isUUID(entry.showroomId) ||
+          !['owner', 'team_member', 'simple_participation'].includes(entry.role)) {
+        throw projectError('Choose a Folio account and a valid role for each collaborator.');
+      }
+      const showroomId = entry.showroomId.toLowerCase();
+      if (seen.has(showroomId)) throw projectError('Each collaborator can only be added once.');
+      seen.add(showroomId);
+      return { showroomId, role: entry.role };
+    });
+  }
   const media = files.filter(file => file.fieldname === 'media');
   const builds = files.filter(file => file.fieldname === 'build');
   const mediaCount = selection?.mediaCount ?? media.length;

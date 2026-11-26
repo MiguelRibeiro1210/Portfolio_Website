@@ -77,6 +77,9 @@ test('project API persists optional associations/files, enforces ownership, vali
     const { project } = await minimal.json();
     assert.equal(project.ownerId, owner.user.id);
     assert.equal(project.title, 'Focus timer');
+    assert.equal(project.collaborators.length, 1);
+    assert.equal(project.collaborators[0].role, 'owner');
+    assert.equal(project.collaborators[0].creator, true);
     assert.equal(project.notes, null);
     assert.equal(project.build, null);
     assert.equal(project.media.length, 1);
@@ -260,6 +263,73 @@ test('project API persists optional associations/files, enforces ownership, vali
     assert.ok(!(await readdir(directory)).includes(first.id));
     const associations = await fixture.inspection.query('SELECT count(*) FROM portfolio.project_files WHERE project_id = $1', [draft.id]);
     assert.equal(associations.rows[0].count, '0');
+
+    await stop();
+    await start();
+    const teamMember = await signIn('teammate@example.com');
+    const lookupTeammate = (email, token) => fetch(base + '/projects/collaborators/lookup', {
+      method: 'POST', headers: { ...headers(token), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+    assert.equal((await lookupTeammate(other.user.email)).status, 401);
+    assert.equal((await lookupTeammate('missing@example.com', owner.token)).status, 404);
+    const lookup = await lookupTeammate('  OTHER@EXAMPLE.COM  ', owner.token);
+    assert.equal(lookup.status, 200);
+    const { account: teammate } = await lookup.json();
+    assert.deepEqual(teammate, { showroomId: otherShowroom.id, name: other.user.name, email: other.user.email });
+    const { showroom: teamShowroom } = await (await get('/projects/showroom', teamMember.token)).json();
+    const collaborators = [{ showroomId: teammate.showroomId, role: 'owner' },
+      { showroomId: teamShowroom.id, role: 'team_member' }];
+    const collaborative = await create({
+      ...details, collaborators, collaborationNotes: 'Thanks to an offline contributor.',
+    }, owner.token);
+    assert.equal(collaborative.status, 201, await collaborative.clone().text());
+    const { project: sharedTeamProject } = await collaborative.json();
+    assert.equal(sharedTeamProject.collaborators.length, 3);
+    const teamProjectUrl = `/projects/${sharedTeamProject.id}`;
+    const collaboratorProject = showroom => `/showrooms/${showroom.id}/projects/${sharedTeamProject.id}`;
+    for (const showroom of [otherShowroom, teamShowroom]) {
+      const response = await get(collaboratorProject(showroom));
+      assert.equal(response.status, 200);
+      const { project: publicProject } = await response.json();
+      assert.equal(publicProject.collaborationNotes, 'Thanks to an offline contributor.');
+      assert.ok(publicProject.collaborators.every(member => !('email' in member)));
+      assert.equal((await get(`${collaboratorProject(showroom)}/files/${sharedTeamProject.media[0].id}`)).status, 200);
+    }
+    const editor = await get(teamProjectUrl, other.token);
+    assert.equal(editor.status, 200);
+    assert.equal((await get(teamProjectUrl, teamMember.token)).status, 404);
+    const change = {
+      ...details, title: 'Edited by an owner', mediaOrder: [{ fileId: sharedTeamProject.media[0].id }], buildAction: 'keep',
+    };
+    const saveTeamProject = (input, token, revision) => {
+      const body = new FormData();
+      body.append('project', JSON.stringify(input));
+      return fetch(base + teamProjectUrl, { method: 'PUT', headers: { ...headers(token), 'If-Match': revision }, body });
+    };
+    const tagBeforeEdit = editor.headers.get('ETag');
+    assert.equal((await saveTeamProject({ ...change, collaborators: [] }, other.token, tagBeforeEdit)).status, 403);
+    const updated = await saveTeamProject(change, other.token, tagBeforeEdit);
+    assert.equal(updated.status, 200, await updated.clone().text());
+    const { project: teamUpdate } = await updated.json();
+    assert.equal(teamUpdate.ownerId, owner.user.id);
+    assert.equal(teamUpdate.collaborators.length, 3);
+    assert.equal(teamUpdate.collaborationNotes, 'Thanks to an offline contributor.');
+    const leave = token => fetch(base + teamProjectUrl + '/collaborators/me', { method: 'DELETE', headers: headers(token) });
+    assert.equal((await leave(owner.token)).status, 403);
+    assert.equal((await leave(other.token)).status, 204);
+    assert.equal((await saveTeamProject(change, other.token, updated.headers.get('ETag'))).status, 404);
+    assert.equal((await get(collaboratorProject(otherShowroom))).status, 404);
+    assert.equal((await get(collaboratorProject(teamShowroom))).status, 200);
+    assert.equal((await saveTeamProject(change, owner.token, updated.headers.get('ETag'))).status, 412);
+    const afterLeave = await get(teamProjectUrl, owner.token);
+    const revisedMembership = await saveTeamProject({
+      ...change, collaborators: [{ showroomId: teamShowroom.id, role: 'simple_participation' }],
+    }, owner.token, afterLeave.headers.get('ETag'));
+    assert.equal(revisedMembership.status, 200, await revisedMembership.clone().text());
+    const publicTeamProject = (await (await get(collaboratorProject(teamShowroom))).json()).project;
+    assert.equal(publicTeamProject.collaborators.find(member => member.showroomId === teamShowroom.id).role, 'simple_participation');
+
 
     const logout = await fetch(base + '/logout', { method: 'POST', headers: { Cookie: owner.cookie } });
     assert.equal(logout.status, 204);

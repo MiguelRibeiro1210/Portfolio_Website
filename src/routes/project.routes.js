@@ -70,7 +70,7 @@ export function createProjectRouter(getDatabase, { jwtSecret }, storage = create
       try { input = JSON.parse(req.body.project); } catch { throw projectError('Invalid project JSON.'); }
       const files = [...(req.files?.media ?? []), ...(req.files?.build ?? [])];
       if (current) {
-        const result = await updateProject(input, files, current, database, storage);
+        const result = await updateProject(input, files, current, database, storage, req.user.id);
         return res.set('ETag', projectTag(result.revision)).json({ project: result.project });
       }
       const project = await createProject(input, files, req.user.id, await getDatabase(), storage);
@@ -92,6 +92,23 @@ export function createProjectRouter(getDatabase, { jwtSecret }, storage = create
   router.get('/showroom', async (req, res) => {
     const showroom = await (await getDatabase()).findOwnerShowroom(req.user.id);
     res.json({ showroom });
+  });
+  router.get('/collaborations', async (req, res) => {
+    res.json({ collaborations: await (await getDatabase()).listCollaborations(req.user.id) });
+  });
+  router.post('/collaborators/lookup', express.json({ limit: '2kb' }), async (req, res) => {
+    const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+    if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      throw projectError('Enter a valid email address.');
+    }
+    const account = await (await getDatabase()).findCollaboratorByEmail(email, req.user.id);
+    if (!account) throw projectError('No teammate was found for that email.', 404);
+    res.json({ account });
+  });
+  router.delete('/:id/collaborators/me', async (req, res) => {
+    if (!isUUID(req.params.id)) throw projectError('Project not found.', 404);
+    await (await getDatabase()).leaveProject(req.user.id, req.params.id);
+    res.status(204).end();
   });
   router.get('/files/:id', async (req, res, next) => {
     if (!isUUID(req.params.id)) return res.status(404).json({ message: 'File not found.' });

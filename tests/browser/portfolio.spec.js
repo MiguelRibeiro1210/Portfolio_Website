@@ -153,6 +153,44 @@ test('a signed-out visitor can open a shared showroom and its published project'
   await expect(page.getByRole('link', { name: 'Edit project' })).toBeVisible();
 });
 
+test('a tagged teammate can see the project in their showroom and leave it', async ({ page }) => {
+  const id = await saveProject(page, { title: 'Team project' });
+  const email = `teammate-${randomUUID()}@example.com`;
+  const response = await page.request.post('/api/register', {
+    data: { name: 'Folio Teammate', email, password: 'sample-password' },
+  });
+  expect(response.status()).toBe(201);
+  await page.getByLabel('Teammate’s Folio email').fill(email);
+  await page.getByRole('button', { name: 'Find teammate' }).click();
+  await page.getByRole('button', { name: `Add Folio Teammate (${email})` }).click();
+  await page.getByLabel('Public collaboration notes').fill('Thanks to our offline contributor.');
+  const saved = page.waitForResponse(res => res.url().endsWith('/api/projects/' + id) && res.request().method() === 'PUT');
+  await page.getByRole('button', { name: 'Save changes' }).click();
+  expect((await saved).status()).toBe(200);
+  await expect(page.getByRole('button', { name: 'Save changes' })).toBeEnabled();
+  await page.getByRole('button', { name: 'Sign out' }).click();
+  await expect(page.getByRole('button', { name: 'Sign out' })).toHaveCount(0);
+  await navigate(page, '/signin');
+  await page.getByLabel('Email address').fill(email);
+  await page.getByLabel('Password', { exact: true }).fill('sample-password');
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
+  await navigate(page, '/');
+  await expect(page.locator('.featured-copy h2')).toHaveText('Team project');
+  await expect(page.locator('.featured-preview img')).toBeVisible();
+  await page.getByRole('link', { name: 'Explore project' }).click();
+  await expect(page).toHaveURL(new RegExp('/showroom/[^/]+/' + id + '$'));
+  await expect(page.getByText('Thanks to our offline contributor.')).toBeVisible();
+  await expect(page.getByText(email, { exact: true })).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'Edit project' })).toHaveCount(0);
+  await navigate(page, '/studio');
+  await page.getByRole('button', { name: 'Leave project' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Leave project' }).click();
+  await expect(page.getByText('You left the project.')).toBeVisible();
+  await navigate(page, '/');
+  await expect(page.getByRole('heading', { name: 'No published projects yet.' })).toBeVisible();
+});
+
 test('featured project controls cycle through saved projects',async ({page})=>{
   await saveProject(page,{title:'First project'});
   await saveProject(page,{title:'Second project',type:'private'});
@@ -425,6 +463,7 @@ test('sign-in survives reload and sign-out ends the browser session', async ({ p
   await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
   await page.getByRole('button', { name: 'Sign out' }).click();
   await expect(page).toHaveURL(/#\/feed$/);
+  await expect(page.getByRole('button', { name: 'Sign out' })).toHaveCount(0);
   await page.reload();
   await expect(page.getByRole('heading', { name: /Discover what’s/ })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Sign out' })).toHaveCount(0);

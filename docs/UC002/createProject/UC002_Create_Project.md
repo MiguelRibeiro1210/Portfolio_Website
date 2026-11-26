@@ -1,5 +1,7 @@
 # UC002 — Create a Project
 
+UC007 adds collaborator roles and notes to the existing creation request. [UC007 design](../../UC007/UC007_Project_Collaborators.md)
+
 ## 1. Requirements Engineering
 
 ### 1.1. User story

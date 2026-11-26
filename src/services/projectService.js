@@ -25,7 +25,7 @@ async function cleanFiles(storage, ids) {
   catch { console.error('Unable to clean up unreferenced project files. Retry removal for file IDs:', ids.join(', ')); }
 }
 
-export async function updateProject(input, files, current, database, storage) {
+export async function updateProject(input, files, current, database, storage, actorId = current.ownerId) {
   const { fields, ordered, build, retainedBuild } = validateProjectUpdate(input, files, current);
   const stored = [];
   async function saveFile(file) {
@@ -40,7 +40,7 @@ export async function updateProject(input, files, current, database, storage) {
     for (const { upload, retained } of ordered) project.media.push(retained || await saveFile(upload));
     const nextBuild = build ? await saveFile(build) : retainedBuild;
     if (nextBuild) project.build = { ...nextBuild, permission: fields.permission };
-    result = await database.updateProject(project, current.revision);
+    result = await database.updateProject(project, current.revision, actorId);
   } catch (error) {
     if (!error.commitUncertain) await cleanFiles(storage, stored);
     throw error;
