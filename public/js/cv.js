@@ -7,7 +7,6 @@ export function aboutPage(state, tab = 'about', owner = false, viewer = null) {
   const projects = (state.projects ?? []).filter(project => project.published);
   const tabs = { about: 'About', projects: 'Projects', experience: 'Experience', education: 'Education', skills: 'Skills', contact: 'Contact' };
   const selected = Object.hasOwn(tabs, tab) ? tab : 'about';
-  const skills = (p.skills ?? '').split(/[,\n]/).map(skill => skill.trim()).filter(Boolean);
   const contact = p.email || p.github || p.linkedin;
   const accountLinks = `
     ${p.github ? `<a href="${e(p.github)}" rel="noopener noreferrer">GitHub ↗</a>` : ''}
@@ -21,8 +20,7 @@ export function aboutPage(state, tab = 'about', owner = false, viewer = null) {
     <div class="profile-entry preserve-lines">${value ? e(value) : placeholder(hint)}</div></section>`;
   const experience = record('Experience', p.experience, 'No experience added.');
   const education = record('Education', p.education, 'No education added.');
-  const skillSection = `<section class="profile-section"><h2>Skills & tools</h2>
-    <div class="skill-tags">${skills.length ? skills.map(skill => `<span>${e(skill)}</span>`).join('') : placeholder('No skills added.')}</div></section>`;
+  const skillSection = record('Skills & tools', p.skills, 'No skills added.');
   const content = {
     about: `<h2 class="profile-role">${p.role ? e(p.role) : 'About this profile'}</h2>
       <p class="preserve-lines">${p.summary ? e(p.summary) : placeholder('No introduction added.')}</p>

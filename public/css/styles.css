@@ -181,8 +181,6 @@ main:focus { outline: none; }
 .about-content h1 { font-size: clamp(36px,4.3vw,62px); margin: 28px 0 25px; }
 .about-panel h2 { margin-bottom: 23px; }
 .about-panel p { max-width: 620px; }
-.skill-tags { display: flex; flex-wrap: wrap; margin-top: 20px; }
-.skill-tags>span { font-size: 11px; }
 /* Project studio */
 .studio-layout { display: grid; }
 .studio-sidebar { display: flex; flex-direction: column; }
@@ -695,8 +693,6 @@ body[data-page=reset] .site-footer {
 .profile-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .profile-project-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 10px; }
 .profile-entry { background: var(--white); border: 1px solid var(--line); padding: 14px; color: var(--muted); font-size: 13px; }
-.skill-tags { gap: 6px; }
-.skill-tags > span { background: var(--white); color: var(--muted); border: 1px solid var(--line); border-radius: 0; padding: 6px 8px; }
 
 .studio-layout { grid-template-columns: minmax(160px, .62fr) minmax(0, 2.4fr); gap: 22px; padding: 24px var(--gutter) 38px; }
 .studio-sidebar { background: transparent; padding: 0; gap: 14px; justify-content: flex-start; }
